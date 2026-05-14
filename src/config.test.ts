@@ -7,6 +7,7 @@ import { loadConfig } from "./config.js";
 const validConfig = () => ({
   protocols: {
     "p-1-x": {
+      chainId: "0x1",
       fromBlock: "0x10",
       cronString: "* * * * *",
       chunkSettings: { criteria: "block", criteriaSettings: "maxBlockRange" },
@@ -36,6 +37,7 @@ describe("loadConfig", () => {
   it("loads a valid target and drops chunk/store/cron fields it does not use", () => {
     write(validConfig());
     const target = loadConfig(path, "p-1-x");
+    expect(target.chainId).toBe("0x1");
     expect(target.fromBlock).toBe("0x10");
     expect(target.events).toHaveLength(1);
     expect(target).not.toHaveProperty("chunkSettings");
@@ -55,6 +57,13 @@ describe("loadConfig", () => {
     delete cfg.protocols["p-1-x"].fromBlock;
     write(cfg);
     expect(() => loadConfig(path, "p-1-x")).toThrow(/fromBlock/);
+  });
+
+  it("throws when chainId is missing", () => {
+    const cfg: any = validConfig();
+    delete cfg.protocols["p-1-x"].chainId;
+    write(cfg);
+    expect(() => loadConfig(path, "p-1-x")).toThrow(/chainId/);
   });
 
   it("throws when events is empty", () => {

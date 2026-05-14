@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { finalizedBlock } from "./cli.js";
+import { assertChainId, finalizedBlock } from "./cli.js";
 
 describe("finalizedBlock", () => {
   it("returns the finalized block number", async () => {
@@ -14,5 +14,17 @@ describe("finalizedBlock", () => {
       },
     } as any;
     expect(await finalizedBlock(client)).toBeNull();
+  });
+});
+
+describe("assertChainId", () => {
+  it("resolves when the RPC chain matches the config", async () => {
+    const client = { getChainId: async () => 1 } as any;
+    await expect(assertChainId(client, "0x1")).resolves.toBeUndefined();
+  });
+
+  it("throws when the RPC is on a different chain", async () => {
+    const client = { getChainId: async () => 137 } as any;
+    await expect(assertChainId(client, "0x1")).rejects.toThrow(/chain mismatch/);
   });
 });

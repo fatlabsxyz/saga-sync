@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createPublicClient, http, numberToHex } from "viem";
-import type { PublicClient } from "viem";
+import type { Hex, PublicClient } from "viem";
 import { loadConfig } from "./config.js";
 import { readCursor, writeCursor } from "./cursor.js";
 import { scrape } from "./scrape.js";
@@ -93,13 +93,25 @@ export async function finalizedBlock(client: PublicClient): Promise<bigint | nul
   }
 }
 
+// Verify the RPC is actually on the chain the config declares — catches a
+// misconfigured --rpc pointed at the wrong network before any data is emitted.
+export async function assertChainId(client: PublicClient, expected: Hex): Promise<void> {
+  const actual = await client.getChainId();
+  if (BigInt(actual) !== BigInt(expected)) {
+    throw new Error(
+      `chain mismatch: config declares chainId ${expected}, but the RPC reports ${numberToHex(actual)}`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const args = parseCliArgs();
   const config = loadConfig(args.configPath, args.protocolId);
   const cursor = readCursor(args.cursorPath);
 
-  // 1. Connect to the RPC
+  // 1. Connect to the RPC (and verify it is on the chain the config declares)
   const client = createPublicClient({ transport: http(args.rpc) });
+  await assertChainId(client, config.chainId);
 
   // 2. Resolve the block range to scan
   const toBlock =

@@ -22,6 +22,7 @@ const eventFilterSchema = z.object({
 // `storeSettings`, `cronString` belong to the chunk builder / orchestrator and
 // are ignored here — zod strips unknown keys by default.
 const targetSchema = z.object({
+  chainId: quantity,
   fromBlock: quantity,
   events: z.array(eventFilterSchema).min(1, "at least one event filter is required"),
 });
@@ -33,6 +34,7 @@ export type EventFilter = {
 };
 
 export type ScraperTarget = {
+  chainId: Hex;
   fromBlock: Hex;
   events: EventFilter[];
 };

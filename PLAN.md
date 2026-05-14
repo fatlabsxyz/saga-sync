@@ -17,7 +17,7 @@ scraper. On review:
    The 5 steps stay *visible* as labeled sections in `cli.ts`. (This is the "up for discussion"
    point — see File layout.)
 2. **Scraper ignores `chunkSettings` / `storeSettings` / `cronString`.** Those are the chunk
-   builder's and orchestrator's concerns. The scraper reads only `events` and `fromBlock`.
+   builder's and orchestrator's concerns. The scraper reads `events`, `fromBlock`, and `chainId`.
    Config validation is lenient — only validate what we use.
 3. **`eth_getLogs` must be windowed.** A cold cursor → head can be millions of blocks; one
    `getLogs` call would be rejected by every provider. `scrape.ts` is an async generator that
@@ -67,11 +67,12 @@ their module — no separate `types.ts`. The user's "5 steps, each a module" ide
 
 ```ts
 const args   = parseCliArgs();                                   // util.parseArgs
-const config = loadConfig(args.config, args.protocolId);         // -> { events, fromBlock }
+const config = loadConfig(args.config, args.protocolId);         // -> { chainId, events, fromBlock }
 const cursor = readCursor(args.cursorPath);
 
-// 1. Connect to the RPC
+// 1. Connect to the RPC (and verify it is on the chain the config declares)
 const client = createPublicClient({ transport: http(args.rpc) });
+await assertChainId(client, config.chainId);
 
 // 2. Resolve the block range to scan
 const toBlock   = args.toBlock                                   // explicit override, else...
@@ -98,12 +99,12 @@ tag (older RPCs, some L2s) — that `null` is what triggers the `--confirmations
 ## Modules
 
 ### `config.ts`
-- `loadConfig(path, protocolId): { events: EventFilter[]; fromBlock: Hex }` — read JSON,
-  zod-validate **only** the fields the scraper uses: `protocols[protocolId].events` (array of
-  `{contractAddress, eventTopic, filter?}`) and `protocols[protocolId].fromBlock` — a **new
-  required field**, the contract deploy block (see README updates). Other fields
-  (`chunkSettings`, `storeSettings`, `cronString`) pass through unvalidated — not the scraper's
-  concern.
+- `loadConfig(path, protocolId): { chainId: Hex; events: EventFilter[]; fromBlock: Hex }` — read
+  JSON, zod-validate **only** the fields the scraper uses: `protocols[protocolId].events` (array
+  of `{contractAddress, eventTopic, filter?}`), `protocols[protocolId].fromBlock` (the contract
+  deploy block) and `protocols[protocolId].chainId` — both **new required fields** (see README
+  updates). Other fields (`chunkSettings`, `storeSettings`, `cronString`) pass through
+  unvalidated — not the scraper's concern.
 
 ### `cursor.ts`
 - `Cursor = Record<protocolId, { lastScrapedBlock: Hex }>`.
@@ -165,12 +166,14 @@ becomes:
 
 `contractAddress` and `eventTopic` stay as the grouping keys above each event list.
 
-**2. "scrapper config" — add a required `fromBlock` per protocol instance.** The contract
-deploy block; without it a cold-start run has no defined starting point. Sits alongside
-`events`:
+**2. "scrapper config" — add required `chainId` and `fromBlock` per protocol instance.**
+`fromBlock` is the contract deploy block (without it a cold-start run has no defined starting
+point); `chainId` is the authoritative chain identity (see Flagged spec ambiguity). Both sit
+alongside `events`:
 
 ```json
 "${protocol}-${chainId}-${protocolInstanceId}": {
+    "chainId": "0x...",
     "fromBlock": "0x...",
     "cronString": "* * * * *",
     "chunkSettings": { ... },
@@ -178,13 +181,14 @@ deploy block; without it a cold-start run has no defined starting point. Sits al
 }
 ```
 
-## Flagged spec ambiguity (not blocking — heads-up)
+## Flagged spec ambiguity (resolved)
 
 The composite key `${protocol}-${chainId}-${protocolInstanceId}` is **not safely parseable**:
 `protocol` names contain hyphens (`tornado-cash`, `privacy-pools`). `tornado-cash-1-mainnet` is
-ambiguous. The scraper sidesteps this by treating the ID as an **opaque key** (config lookup +
-cursor key only — it never needs `chainId`). But the broader spec (index files, chunk filenames)
-should consider a non-hyphen delimiter or explicit `chainId`/`protocol` fields.
+ambiguous. **Resolved** by adopting an explicit required `chainId` config field (from the
+broader project spec): the scraper still treats the composite key as opaque, but reads chain
+identity from `chainId` instead of parsing the key — and verifies it against the RPC via
+`eth_chainId` at startup.
 
 ## Note on latency
 
@@ -223,5 +227,6 @@ node dist/cli.js --config ... --rpc ... --from-block 0xC50000 --to-block 0xC5A80
 
 Unit tests (`vitest`): `normalize` (hex casing, missing topic), `scrape` (window slicing +
 adaptive-split on a mocked `request`), `cursor` (atomic write, missing-file read), `config`
-(required `fromBlock`, lenient validation of unused fields, bad `events`), `finalizedBlock`
-(returns the block / returns `null` on an unsupported-tag error → triggers fallback).
+(required `chainId`/`fromBlock`, lenient validation of unused fields, bad `events`),
+`finalizedBlock` (block / `null` on unsupported-tag → fallback), `assertChainId` (matches /
+throws on chain mismatch).

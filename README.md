@@ -43,6 +43,7 @@ This project aims to solve state distribution for privacy protocols in the least
 {
     "protocols": {
         "${protocol}-${chainId}-${protocolInstanceId}": {
+            "chainId": "0x...",
             "fromBlock": "0x...",
             "cronString": "* * * * *",
             "chunkSettings": {
