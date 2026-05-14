@@ -26,9 +26,12 @@ This project aims to solve state distribution for privacy protocols in the least
     "events": {
         "${contractAddress}": {
             "${eventTopic}": [{
+                "topics": ["0x...", "0x..."],
                 "data": "${gibberish}",
                 "blockNumber": "0x1",
-                "logIndex": "0x1"
+                "logIndex": "0x1",
+                "transactionHash": "0x...",
+                "blockHash": "0x..."
             }]
         }
     }
@@ -40,6 +43,7 @@ This project aims to solve state distribution for privacy protocols in the least
 {
     "protocols": {
         "${protocol}-${chainId}-${protocolInstanceId}": {
+            "fromBlock": "0x...",
             "cronString": "* * * * *",
             "chunkSettings": {
                 "criteria": "block|size",
