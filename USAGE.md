@@ -1,6 +1,6 @@
-# Scraper + Chunk Builder — usage
+# Scraper + Chunk Builder + Orchestrator — usage
 
-Quick reference for running the event scraper and the chunk builder pipeline.
+Quick reference for the three CLIs in the pipeline. For day-to-day operation, skip ahead to **Orchestrator CLI** — it wraps both the scraper and the chunk builder behind a single command. The earlier sections document the scraper and chunk builder as standalone tools (useful for backfills, debugging, or composing manually).
 
 ## One-time setup
 
@@ -57,9 +57,9 @@ node dist/scraper/cli.js ... --dry-run | jq -c '{block: .blockNumber, topic: .ev
 node dist/scraper/cli.js --help
 ```
 
-## How cron would run it
+## How cron would run it (manual approach)
 
-Same command, scheduled (e.g. every 5 min). Output goes to stdout, summary to stderr, exit code 0 on success / 1 on error — so it's safe to pipe stdout into the chunk builder:
+For most cron deployments, prefer the **orchestrator** (see bottom of this file) — it handles every protocol and updates the manifest from one entry. The manual pipe shown here is useful if you want to run a single protocol with explicit block ranges or compose your own scheduling. Output goes to stdout, summary to stderr, exit code 0 on success / 1 on error — so it's safe to pipe stdout into the chunk builder:
 
 ```bash
 */5 * * * * cd /path/to/repo && node dist/scraper/cli.js --config ./example-config.json \
@@ -175,3 +175,85 @@ covering the full `[from, to)`, so the manifest asserts the range was scanned.
 ```bash
 node dist/chunk-builder/cli.js --help
 ```
+
+# Orchestrator CLI — usage
+
+Top-level cron entry point. Loads every protocol from the config, computes each one's next-from-block from the manifest, runs `scrape → chunk` in-process for any protocol that has new blocks since the last seal. Sequential per tick; a lockfile prevents accidental overlapping runs.
+
+## Basic invocation
+
+```bash
+node dist/orchestrator/cli.js \
+  --config ./example-config.json \
+  --rpc https://ethereum-rpc.publicnode.com \
+  --output-dir ./chunks
+```
+
+stderr summary:
+
+```
+orchestrator: tornado-cash-1-eth-0.1 sealed 1 chunk(s) [0x17f5800, 0x17f5bbb)
+orchestrator: 1 ran, 0 skipped, 0 failed [tip 0x17f5bba]
+```
+
+## What gets created
+
+Same `chunks/` layout as the manual `scraper | chunk-builder` pipe, just driven for every protocol in the config:
+
+```
+./chunks/
+  tornado-cash-1-eth-0.1-[...).jsonl.gz
+  index.json
+  .orchestrator.lock     # only present during a run; removed on exit
+```
+
+Re-running with no flag changes is a no-op when the manifest is already at the chain's finalized block — the orchestrator derives each protocol's next-from-block from `max(chunks[].toBlock)` and skips when there's nothing new.
+
+## Cron entry (daily)
+
+```
+0 2 * * * cd /path/to/repo && node dist/orchestrator/cli.js \
+  --config ./example-config.json \
+  --rpc https://ethereum-rpc.publicnode.com \
+  --output-dir ./chunks >> /var/log/orchestrator.log 2>&1
+```
+
+A single cron entry handles every protocol in the config. If a previous tick is still running when a new one fires, the new one exits quietly via the lockfile.
+
+## Useful variations
+
+**Restrict to one protocol** (backfilling or ad-hoc reruns):
+
+```bash
+node dist/orchestrator/cli.js \
+  --config ./example-config.json \
+  --rpc https://ethereum-rpc.publicnode.com \
+  --output-dir ./chunks \
+  --protocol-id tornado-cash-1-eth-0.1
+```
+
+The from-block is still derived from the manifest, so this catches that one protocol up to tip without affecting the others.
+
+**Dry-run** (compute the per-protocol ranges, don't touch disk):
+
+```bash
+node dist/orchestrator/cli.js ... --dry-run
+```
+
+Prints what each protocol *would* scan; doesn't acquire the lockfile, so safe to run alongside a live cron.
+
+**Chunk size**: comes from `chunkSettings.maxSizeBytes` in the protocol's config entry (number or `0x`-hex), falling back to `--size-limit` (default 10 MiB). Set per-protocol when one contract's events are denser than another.
+
+**Cold start a new protocol**: drop a new entry into the config (`chainId`, `fromBlock`, `events`). On the next tick the orchestrator finds no manifest entries for it and uses `config.fromBlock` as the starting block. No state files to bootstrap.
+
+**Full flag list:**
+
+```bash
+node dist/orchestrator/cli.js --help
+```
+
+## Exit codes
+
+- `0` — clean run (zero or more protocols ran successfully, or another orchestrator was already running)
+- `1` — config error, missing required flags, or unknown `--protocol-id`
+- `2` — at least one protocol threw mid-run (others may still have succeeded; check stderr)
