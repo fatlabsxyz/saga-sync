@@ -4,3 +4,7 @@ dist/
 
 # Local scraper state — not committed
 cursor.json
+
+# Local design plans — kept out of the repo
+PLAN.md
+CHUNK_BUILDER_PLAN.md

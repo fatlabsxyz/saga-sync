@@ -7,17 +7,19 @@
     "node": ">=20"
   },
   "bin": {
-    "scraper": "dist/cli.js"
+    "scraper": "dist/scraper/cli.js",
+    "chunk-builder": "dist/chunk-builder/cli.js"
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/cli.js",
-    "dev": "tsx src/cli.ts",
+    "start": "node dist/scraper/cli.js",
+    "dev": "tsx src/scraper/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@noble/hashes": "^2.2.0",
     "viem": "^2.21.0",
     "zod": "^3.23.8"
   },
