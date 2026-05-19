@@ -1,6 +1,6 @@
-import { writeFileSync, renameSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { gzipSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { numberToHex } from "viem";
 import type { Hex } from "viem";
 import { blake3 } from "@noble/hashes/blake3.js";
@@ -18,6 +18,12 @@ export type SealOptions = {
   outputDir: string;
   protocolId: string;
   dryRun: boolean;
+  // When true, the produced file gets a `.hot.jsonl.gz` suffix instead of
+  // `.jsonl.gz`. Hot files are still immutable at their URL (each rewrite
+  // has a different toBlock and therefore a different filename) — the `.hot.`
+  // infix is just a hint to clients/cleanup routines that the file is the
+  // protocol's current mutable tail.
+  hot?: boolean;
 };
 
 // Build the JSONL bytes for a chunk: one CanonicalEvent per line, trailing
@@ -43,7 +49,8 @@ export function sealChunk(
 
   const fromHex = numberToHex(range.from);
   const toHex = numberToHex(range.to);
-  const file = `${opts.protocolId}-[${fromHex},${toHex}).jsonl.gz`;
+  const suffix = opts.hot ? ".hot.jsonl.gz" : ".jsonl.gz";
+  const file = `${opts.protocolId}-[${fromHex},${toHex})${suffix}`;
 
   if (!opts.dryRun) {
     const finalPath = join(opts.outputDir, file);
@@ -59,4 +66,18 @@ export function sealChunk(
     size: numberToHex(compressed.length),
     digest: { type: "blake3", data: digestHex },
   };
+}
+
+// Inverse of sealChunk for its content: gunzip + parse JSONL → CanonicalEvent[].
+// Used by the orchestrator to load a previous hot head back into the accumulator,
+// and (eventually) by the client library to materialize chunk contents.
+export function readChunkFile(path: string): CanonicalEvent[] {
+  const compressed = readFileSync(path);
+  if (compressed.length === 0) return [];
+  const uncompressed = gunzipSync(compressed).toString("utf8");
+  if (uncompressed.length === 0) return [];
+  return uncompressed
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as CanonicalEvent);
 }

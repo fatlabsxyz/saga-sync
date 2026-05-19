@@ -1,6 +1,7 @@
 import type { PublicClient } from "viem";
 import { scrape } from "../scraper/scrape.js";
 import { normalize } from "../scraper/normalize.js";
+import type { CanonicalEvent } from "../scraper/normalize.js";
 import type { EventFilter } from "../scraper/config.js";
 import { processStream } from "../chunk-builder/cli.js";
 import type { ChunkMeta } from "../chunk-builder/seal.js";
@@ -15,13 +16,27 @@ export type RunProtocolOptions = {
   outputDir: string;
   window: number;
   dryRun?: boolean;
+  // Optional: events loaded from the protocol's previous hot head, plus the
+  // fromBlock that hot head started at. When set, processStream pre-loads the
+  // accumulator so the next sealed chunk's range begins at `hotHead.fromBlock`
+  // rather than `opts.fromBlock`.
+  hotHead?: { events: CanonicalEvent[]; fromBlock: bigint };
+  // When "seal" (default) processStream seals the trailing partial at EOF.
+  // When "suspend" it returns the trailing accumulator in the result, leaving
+  // the caller to persist it as the new hot head.
+  trailingMode?: "seal" | "suspend";
+};
+
+export type RunProtocolResult = {
+  sealed: ChunkMeta[];
+  trailing?: { events: CanonicalEvent[]; fromBlock: bigint; toBlock: bigint };
 };
 
 // Compose scraper + chunk-builder in-process: scrape() yields raw logs, we
 // normalize and stringify into NDJSON lines, and processStream consumes them.
 // No subprocess, no stdio piping — errors from either side propagate as
 // exceptions and the caller decides whether to advance state.
-export async function runProtocolOnce(opts: RunProtocolOptions): Promise<ChunkMeta[]> {
+export async function runProtocolOnce(opts: RunProtocolOptions): Promise<RunProtocolResult> {
   async function* lines(): AsyncGenerator<string> {
     for await (const log of scrape(opts.client, {
       fromBlock: opts.fromBlock,
@@ -41,5 +56,9 @@ export async function runProtocolOnce(opts: RunProtocolOptions): Promise<ChunkMe
     outputDir: opts.outputDir,
     sizeLimit: opts.sizeLimit,
     dryRun: opts.dryRun ?? false,
+    ...(opts.hotHead && {
+      seed: { events: opts.hotHead.events, chunkFrom: opts.hotHead.fromBlock },
+    }),
+    ...(opts.trailingMode && { trailingMode: opts.trailingMode }),
   });
 }

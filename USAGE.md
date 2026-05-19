@@ -178,7 +178,7 @@ node dist/chunk-builder/cli.js --help
 
 # Orchestrator CLI — usage
 
-Top-level cron entry point. Loads every protocol from the config, computes each one's next-from-block from the manifest, runs `scrape → chunk` in-process for any protocol that has new blocks since the last seal. Sequential per tick; a lockfile prevents accidental overlapping runs.
+Top-level cron entry point. Loads every protocol from the config, computes each one's next-from-block from the manifest (sealed chunks + mutable hot head), and loops `scrape → chunk` in **batches** of `--batch-size` blocks (default 100K). Within each tick: protocols run sequentially, a lockfile prevents accidental overlapping runs, and the trailing partial chunk after each batch is persisted as the protocol's **hot head** rather than sealed — so subsequent ticks fold new events into the existing hot head until it reaches the size limit and gets promoted into the immutable list.
 
 ## Basic invocation
 
@@ -189,25 +189,28 @@ node dist/orchestrator/cli.js \
   --output-dir ./chunks
 ```
 
-stderr summary:
+stderr summary on a cold-start with a forced-promotion size limit:
 
 ```
-orchestrator: tornado-cash-1-eth-0.1 sealed 1 chunk(s) [0x17f5800, 0x17f5bbb)
-orchestrator: 1 ran, 0 skipped, 0 failed [tip 0x17f5bba]
+orchestrator: tornado-cash-1-eth-0.1 ran 3 batch(es), sealed 14 chunk(s) + hot head [0x17f76ce, 0x17f7803)
+orchestrator: 1 ran, 0 skipped, 0 failed [tip 0x17f7802]
 ```
 
 ## What gets created
 
-Same `chunks/` layout as the manual `scraper | chunk-builder` pipe, just driven for every protocol in the config:
-
 ```
 ./chunks/
-  tornado-cash-1-eth-0.1-[...).jsonl.gz
+  tornado-cash-1-eth-0.1-[0x17f7000,0x17f71f3).jsonl.gz      # immutable sealed chunks
+  tornado-cash-1-eth-0.1-[0x17f71f3,0x17f7204).jsonl.gz
+  ...
+  tornado-cash-1-eth-0.1-[0x17f76ce,0x17f7803).hot.jsonl.gz  # mutable hot head (one per protocol)
   index.json
-  .orchestrator.lock     # only present during a run; removed on exit
+  .orchestrator.lock                                          # only present during a run
 ```
 
-Re-running with no flag changes is a no-op when the manifest is already at the chain's finalized block — the orchestrator derives each protocol's next-from-block from `max(chunks[].toBlock)` and skips when there's nothing new.
+- Sealed chunks (`*.jsonl.gz`) are **immutable at their URL** — safe to cache forever.
+- The hot head file (`*.hot.jsonl.gz`) is also immutable at its URL, but the manifest's `hotHeads[id].file` points at a new URL on each tick that advances the hot head's range. The previous hot-head file is deleted after the manifest is updated.
+- Re-running with no chain advance is a no-op: the orchestrator derives each protocol's next-from-block from `max(hotHead.toBlock, lastSealed.toBlock)` and skips when there's nothing new.
 
 ## Cron entry (daily)
 
@@ -242,9 +245,27 @@ node dist/orchestrator/cli.js ... --dry-run
 
 Prints what each protocol *would* scan; doesn't acquire the lockfile, so safe to run alongside a live cron.
 
+**Batch size**: `--batch-size <n>` (default 100000) — blocks per atomic pipeline call. Smaller batches bound the crash blast radius (in-flight events lost on crash ≤ one batch); larger batches reduce hot-head rewrite overhead during cold-start backfills. For daily steady-state ticks one batch usually covers everything.
+
 **Chunk size**: comes from `chunkSettings.maxSizeBytes` in the protocol's config entry (number or `0x`-hex), falling back to `--size-limit` (default 10 MiB). Set per-protocol when one contract's events are denser than another.
 
 **Cold start a new protocol**: drop a new entry into the config (`chainId`, `fromBlock`, `events`). On the next tick the orchestrator finds no manifest entries for it and uses `config.fromBlock` as the starting block. No state files to bootstrap.
+
+**Verify hot head integrity** (same shape as the sealed-chunk verification):
+
+```bash
+node --input-type=module -e "
+import { blake3 } from '@noble/hashes/blake3.js';
+import { gunzipSync } from 'node:zlib';
+import { readFileSync } from 'node:fs';
+const idx = JSON.parse(readFileSync('./chunks/index.json', 'utf8'));
+const hot = idx.hotHeads?.['tornado-cash-1-eth-0.1'];
+if (!hot) { console.log('no hot head'); process.exit(0); }
+const data = gunzipSync(readFileSync('./chunks/' + hot.file));
+const got = '0x' + Buffer.from(blake3(data)).toString('hex');
+console.log(got === hot.digest.data ? 'OK' : 'MISMATCH', got);
+"
+```
 
 **Full flag list:**
 

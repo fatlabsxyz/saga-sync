@@ -86,24 +86,42 @@ export type ProcessArgs = {
   outputDir: string;
   sizeLimit: number;
   dryRun: boolean;
+  // Optional: events from a previous hot head, loaded into the accumulator
+  // before the new stream begins. `chunkFrom` is the start of the resulting
+  // chunk's range — typically the old hot head's fromBlock, which is earlier
+  // than args.fromBlock. Seeded events bypass the range check (they were
+  // validated by the previous batch).
+  seed?: { events: CanonicalEvent[]; chunkFrom: bigint };
+  // "seal" (default): trailing accumulator is sealed at EOF, same as before.
+  // "suspend": trailing accumulator is returned in `trailing`; caller decides
+  //   whether to persist it as a hot head or to seal it.
+  trailingMode?: "seal" | "suspend";
+};
+
+export type ProcessResult = {
+  sealed: ChunkMeta[];
+  // Present only when trailingMode === "suspend". `events` may be empty if all
+  // scraped data fit into the sealed chunks; the range is still reported so the
+  // caller can persist an empty hot head asserting "scanned up to here."
+  trailing?: { events: CanonicalEvent[]; fromBlock: bigint; toBlock: bigint };
 };
 
 // Block-aligned chunk partitioning. Maintains a `pending` buffer for the
 // in-progress block; only commits a block's events to the current chunk when
 // the next block arrives. That guarantees chunk boundaries always fall between
 // blocks, never within one (so a multi-event block can't be split across chunks).
-// On EOF, the final chunk's `toBlock` is forced to args.toBlock — covering any
-// trailing block range with no events.
+// On EOF, the trailing accumulator is either sealed (seal mode) or returned
+// to the caller (suspend mode) — that's what enables hot-head carry-over.
 export async function processStream(
   lines: AsyncIterable<string>,
   args: ProcessArgs,
-): Promise<ChunkMeta[]> {
+): Promise<ProcessResult> {
   const manifestPath = join(args.outputDir, "index.json");
   const sealed: ChunkMeta[] = [];
 
   let accumulated: CanonicalEvent[] = [];
   let accumulatedBytes = 0;
-  let chunkFrom = args.fromBlock;
+  let chunkFrom = args.seed?.chunkFrom ?? args.fromBlock;
 
   let pending: CanonicalEvent[] = [];
   let pendingBytes = 0;
@@ -122,32 +140,22 @@ export async function processStream(
     accumulatedBytes = 0;
   };
 
-  for await (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (line === "") continue;
-
-    let event: CanonicalEvent;
-    try {
-      event = JSON.parse(line) as CanonicalEvent;
-    } catch (err) {
-      throw new Error(`malformed NDJSON line: ${(err as Error).message}`);
-    }
+  // Inner state-machine step. `isSeed` skips the range check for events that
+  // came from the prior hot head — those are by definition earlier than the
+  // new scan's fromBlock and shouldn't be rejected.
+  const ingest = (event: CanonicalEvent, lineBytes: number, isSeed: boolean): void => {
     if (typeof event.blockNumber !== "string") {
-      throw new Error(`event missing blockNumber: ${line.slice(0, 120)}`);
+      throw new Error(`event missing blockNumber: ${JSON.stringify(event).slice(0, 120)}`);
     }
     const eventBlock = BigInt(event.blockNumber);
-    if (eventBlock < args.fromBlock || eventBlock >= args.toBlock) {
+    if (!isSeed && (eventBlock < args.fromBlock || eventBlock >= args.toBlock)) {
       throw new Error(
         `event at block ${event.blockNumber} outside scanned range ` +
           `[${numberToHex(args.fromBlock)}, ${numberToHex(args.toBlock)})`,
       );
     }
-    const lineBytes = Buffer.byteLength(JSON.stringify(event) + "\n", "utf8");
 
     if (pendingBlock !== null && eventBlock !== pendingBlock) {
-      // Commit pending block into the current chunk (sealing first if it would
-      // overflow). pendingBlock is now finalized; from here it's safe to choose
-      // it as a chunk boundary.
       if (accumulatedBytes + pendingBytes > args.sizeLimit && accumulated.length > 0) {
         flushSeal(pendingBlock);
       }
@@ -160,6 +168,30 @@ export async function processStream(
     pendingBlock = eventBlock;
     pending.push(event);
     pendingBytes += lineBytes;
+  };
+
+  // Seed events come first — they're treated as if they were the leading
+  // lines of the stream. Their byte size matches what JSON.stringify(event)
+  // would produce, since that's what the hot head's JSONL was built from.
+  if (args.seed) {
+    for (const e of args.seed.events) {
+      const lineBytes = Buffer.byteLength(JSON.stringify(e) + "\n", "utf8");
+      ingest(e, lineBytes, true);
+    }
+  }
+
+  for await (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line === "") continue;
+
+    let event: CanonicalEvent;
+    try {
+      event = JSON.parse(line) as CanonicalEvent;
+    } catch (err) {
+      throw new Error(`malformed NDJSON line: ${(err as Error).message}`);
+    }
+    const lineBytes = Buffer.byteLength(JSON.stringify(event) + "\n", "utf8");
+    ingest(event, lineBytes, false);
   }
 
   // Flush any remaining pending into accumulated. There's no further block to
@@ -172,11 +204,25 @@ export async function processStream(
     accumulatedBytes += pendingBytes;
   }
 
-  // Always emit a final chunk covering up to args.toBlock — even with zero
-  // events. This is what makes the manifest assert full range coverage.
-  flushSeal(args.toBlock);
+  const mode = args.trailingMode ?? "seal";
+  if (mode === "seal") {
+    // Always emit a final chunk covering up to args.toBlock — even with zero
+    // events. This is what makes the manifest assert full range coverage.
+    flushSeal(args.toBlock);
+    return { sealed };
+  }
 
-  return sealed;
+  // Suspend mode: caller wants the trailing accumulator back rather than sealed.
+  // The trailing range is [chunkFrom, args.toBlock) — same range the seal call
+  // would have used, just expressed in the result instead.
+  return {
+    sealed,
+    trailing: {
+      events: accumulated,
+      fromBlock: chunkFrom,
+      toBlock: args.toBlock,
+    },
+  };
 }
 
 async function main(): Promise<void> {
@@ -184,7 +230,7 @@ async function main(): Promise<void> {
   if (!args.dryRun) mkdirSync(args.outputDir, { recursive: true });
 
   const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
-  const sealed = await processStream(rl, args);
+  const { sealed } = await processStream(rl, args);
 
   process.stderr.write(
     `chunk-builder: ${sealed.length} chunk(s) for ${args.protocolId} ` +

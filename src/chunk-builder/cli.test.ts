@@ -38,7 +38,7 @@ describe("processStream", () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   it("emits one empty chunk covering the full range when stdin is empty", async () => {
-    const sealed = await processStream(asyncLines(), {
+    const { sealed } = await processStream(asyncLines(), {
       ...baseArgs(dir),
       sizeLimit: 1024,
     });
@@ -50,7 +50,7 @@ describe("processStream", () => {
   });
 
   it("emits one chunk when all events fit under the size limit", async () => {
-    const sealed = await processStream(
+    const { sealed } = await processStream(
       asyncLines(event(0x65n), event(0x66n), event(0x67n)),
       { ...baseArgs(dir), sizeLimit: 10_000 },
     );
@@ -63,7 +63,7 @@ describe("processStream", () => {
     // Each event ~250 bytes; with 2 per block and a 600-byte limit, block 0x65
     // fits and block 0x66 forces a split.
     const big = "x".repeat(200);
-    const sealed = await processStream(
+    const { sealed } = await processStream(
       asyncLines(
         event(0x65n, 0, big),
         event(0x65n, 1, big),
@@ -83,7 +83,7 @@ describe("processStream", () => {
     // Block 0x65 alone is 4 * ~250 bytes = ~1000 bytes, well over the 400 limit.
     // The chunk-boundary algorithm must keep all 4 events in one chunk.
     const big = "x".repeat(200);
-    const sealed = await processStream(
+    const { sealed } = await processStream(
       asyncLines(
         event(0x65n, 0, big),
         event(0x65n, 1, big),
@@ -147,10 +147,69 @@ describe("processStream", () => {
       yield "   ";
       yield JSON.stringify(event(0x66n));
     }
-    const sealed = await processStream(withBlanks(), {
+    const { sealed } = await processStream(withBlanks(), {
       ...baseArgs(dir),
       sizeLimit: 10_000,
     });
     expect(sealed).toHaveLength(1);
+  });
+
+  it("suspend mode returns the trailing accumulator instead of sealing it", async () => {
+    const result = await processStream(asyncLines(event(0x65n), event(0x66n)), {
+      ...baseArgs(dir),
+      sizeLimit: 10_000,
+      trailingMode: "suspend",
+    });
+    expect(result.sealed).toHaveLength(0); // nothing sealed mid-stream (under size limit)
+    expect(result.trailing).toBeDefined();
+    expect(result.trailing!.events).toHaveLength(2);
+    expect(result.trailing!.fromBlock).toBe(0x64n);
+    expect(result.trailing!.toBlock).toBe(0xc8n);
+  });
+
+  it("suspend mode returns empty trailing when scrape produced no events", async () => {
+    const result = await processStream(asyncLines(), {
+      ...baseArgs(dir),
+      sizeLimit: 10_000,
+      trailingMode: "suspend",
+    });
+    expect(result.sealed).toHaveLength(0);
+    expect(result.trailing).toBeDefined();
+    expect(result.trailing!.events).toHaveLength(0);
+    expect(result.trailing!.fromBlock).toBe(0x64n);
+    expect(result.trailing!.toBlock).toBe(0xc8n);
+  });
+
+  it("seed pre-loads the accumulator and the first sealed chunk starts at seed.chunkFrom", async () => {
+    const big = "x".repeat(200);
+    // Seed has 2 events at blocks 0x50, 0x51 (before this batch's fromBlock=0x64).
+    const seed = {
+      events: [event(0x50n, 0, big), event(0x51n, 0, big)],
+      chunkFrom: 0x40n,
+    };
+    // New scrape events at 0x65, 0x66 (in [0x64, 0xc8)).
+    const result = await processStream(asyncLines(event(0x65n, 0, big), event(0x66n, 0, big)), {
+      ...baseArgs(dir),
+      sizeLimit: 600,
+      seed,
+      trailingMode: "suspend",
+    });
+    // Seed + new events ≈ 1000 bytes > 600 → at least one seal triggers.
+    expect(result.sealed.length).toBeGreaterThanOrEqual(1);
+    // The first sealed chunk's fromBlock must be the seed.chunkFrom, not the
+    // batch's fromBlock.
+    expect(result.sealed[0]?.fromBlock).toBe("0x40");
+  });
+
+  it("seed events bypass the range check (they're typically before fromBlock)", async () => {
+    // If range check were enforced on seed, block 0x50 would throw (it's
+    // below fromBlock=0x64). Suspend mode + seed should accept it.
+    const result = await processStream(asyncLines(), {
+      ...baseArgs(dir),
+      sizeLimit: 10_000,
+      seed: { events: [event(0x50n)], chunkFrom: 0x40n },
+      trailingMode: "suspend",
+    });
+    expect(result.trailing!.events).toHaveLength(1);
   });
 });
