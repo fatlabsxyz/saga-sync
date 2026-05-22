@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readManifest, appendToManifest, setHotHead, clearHotHead } from "./manifest.js";
-import type { ChunkMeta } from "./seal.js";
+import { DiskStore } from "../storage/disk-store.js";
+import { Manifest } from "./manifest.js";
+import type { ChunkMeta } from "./manifest.js";
 
 const meta = (overrides: Partial<ChunkMeta> = {}): ChunkMeta => ({
   fromBlock: "0xc50101",
@@ -14,93 +15,89 @@ const meta = (overrides: Partial<ChunkMeta> = {}): ChunkMeta => ({
   ...overrides,
 });
 
-describe("manifest", () => {
+describe("Manifest", () => {
   let dir: string;
-  let path: string;
+  let store: DiskStore;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "manifest-test-"));
-    path = join(dir, "index.json");
+    store = new DiskStore(dir);
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it("readManifest returns an empty structure when the file is absent", () => {
-    expect(readManifest(path)).toEqual({ availableStates: {} });
+  it("loads an empty manifest when index.json is absent", async () => {
+    const m = await Manifest.load(store);
+    expect(m.snapshot()).toEqual({ availableStates: {} });
   });
 
-  it("first append creates the protocol entry", () => {
-    appendToManifest(path, "proto-a", meta());
-    expect(readManifest(path).availableStates["proto-a"]).toEqual([meta()]);
+  it("appendChunk persists and is readable on reload", async () => {
+    const m = await Manifest.load(store);
+    await m.appendChunk("proto-a", meta());
+    const reloaded = await Manifest.load(store);
+    expect(reloaded.sealedChunks("proto-a")).toEqual([meta()]);
   });
 
-  it("subsequent appends extend the array in order", () => {
-    appendToManifest(path, "proto-a", meta({ fromBlock: "0x1" }));
-    appendToManifest(path, "proto-a", meta({ fromBlock: "0x2" }));
-    appendToManifest(path, "proto-a", meta({ fromBlock: "0x3" }));
-    const list = readManifest(path).availableStates["proto-a"];
-    expect(list?.map((m) => m.fromBlock)).toEqual(["0x1", "0x2", "0x3"]);
+  it("appendChunk extends the array in order", async () => {
+    const m = await Manifest.load(store);
+    await m.appendChunk("proto-a", meta({ fromBlock: "0x1" }));
+    await m.appendChunk("proto-a", meta({ fromBlock: "0x2" }));
+    await m.appendChunk("proto-a", meta({ fromBlock: "0x3" }));
+    expect(m.sealedChunks("proto-a").map((c) => c.fromBlock)).toEqual(["0x1", "0x2", "0x3"]);
   });
 
-  it("keeps separate arrays per protocolId", () => {
-    appendToManifest(path, "proto-a", meta({ fromBlock: "0xa" }));
-    appendToManifest(path, "proto-b", meta({ fromBlock: "0xb" }));
-    const out = readManifest(path).availableStates;
-    expect(out["proto-a"]?.[0]?.fromBlock).toBe("0xa");
-    expect(out["proto-b"]?.[0]?.fromBlock).toBe("0xb");
+  it("setHotHead stores one mutable entry per protocol; clearHotHead removes it", async () => {
+    const m = await Manifest.load(store);
+    await m.setHotHead("proto-a", meta({ toBlock: "0x100" }));
+    await m.setHotHead("proto-a", meta({ toBlock: "0x200" })); // replaces
+    expect(m.hotHead("proto-a")?.toBlock).toBe("0x200");
+    await m.clearHotHead("proto-a");
+    expect(m.hotHead("proto-a")).toBeUndefined();
   });
 
-  it("leaves no temp file behind", () => {
-    appendToManifest(path, "proto-a", meta());
-    expect(existsSync(`${path}.${process.pid}.tmp`)).toBe(false);
+  it("setHotHead does not disturb availableStates", async () => {
+    const m = await Manifest.load(store);
+    await m.appendChunk("proto-a", meta({ toBlock: "0xfff" }));
+    await m.setHotHead("proto-a", meta({ toBlock: "0x100" }));
+    expect(m.sealedChunks("proto-a")).toHaveLength(1);
+    expect(m.sealedChunks("proto-a")[0]?.toBlock).toBe("0xfff");
   });
 
-  it("throws on a corrupt manifest rather than silently resetting", () => {
-    writeFileSync(path, "{ not valid json", "utf8");
-    expect(() => readManifest(path)).toThrow();
+  it("clearHotHead drops the hotHeads field once empty", async () => {
+    const m = await Manifest.load(store);
+    await m.setHotHead("proto-a", meta());
+    await m.clearHotHead("proto-a");
+    expect(await Manifest.load(store).then((x) => x.snapshot().hotHeads)).toBeUndefined();
   });
 
-  it("recovers to an empty structure when the file is missing availableStates", () => {
-    writeFileSync(path, JSON.stringify({ other: 1 }), "utf8");
-    expect(readManifest(path)).toEqual({ availableStates: {} });
+  it("throws on a corrupt manifest rather than silently resetting", async () => {
+    writeFileSync(join(dir, "index.json"), "{ not valid json", "utf8");
+    await expect(Manifest.load(store)).rejects.toThrow();
   });
 
-  it("setHotHead creates the hotHeads field and stores one entry per protocol", () => {
-    setHotHead(path, "proto-a", meta({ toBlock: "0x100" }));
-    setHotHead(path, "proto-b", meta({ toBlock: "0x200" }));
-    const m = readManifest(path);
-    expect(m.hotHeads).toBeDefined();
-    expect(m.hotHeads!["proto-a"]?.toBlock).toBe("0x100");
-    expect(m.hotHeads!["proto-b"]?.toBlock).toBe("0x200");
-  });
+  describe("lastCoveredBlock", () => {
+    it("is null with neither sealed chunks nor a hot head", async () => {
+      const m = await Manifest.load(store);
+      expect(m.lastCoveredBlock("proto")).toBeNull();
+    });
 
-  it("setHotHead replaces an existing entry (one per protocol)", () => {
-    setHotHead(path, "proto-a", meta({ toBlock: "0x100" }));
-    setHotHead(path, "proto-a", meta({ toBlock: "0x200" }));
-    expect(readManifest(path).hotHeads!["proto-a"]?.toBlock).toBe("0x200");
-  });
+    it("is the last sealed chunk's toBlock when there is no hot head", async () => {
+      const m = await Manifest.load(store);
+      await m.appendChunk("proto", meta({ toBlock: "0x10" }));
+      await m.appendChunk("proto", meta({ toBlock: "0x30" }));
+      expect(m.lastCoveredBlock("proto")).toBe(0x30n);
+    });
 
-  it("setHotHead does not touch availableStates", () => {
-    appendToManifest(path, "proto-a", meta({ toBlock: "0xfff" }));
-    setHotHead(path, "proto-a", meta({ toBlock: "0x100" }));
-    const m = readManifest(path);
-    expect(m.availableStates["proto-a"]).toHaveLength(1);
-    expect(m.availableStates["proto-a"]?.[0]?.toBlock).toBe("0xfff");
-  });
+    it("is the hot head's toBlock when it leads the sealed chunks", async () => {
+      const m = await Manifest.load(store);
+      await m.appendChunk("proto", meta({ toBlock: "0x20" }));
+      await m.setHotHead("proto", meta({ toBlock: "0x50" }));
+      expect(m.lastCoveredBlock("proto")).toBe(0x50n);
+    });
 
-  it("clearHotHead removes the entry and is a no-op when nothing is set", () => {
-    clearHotHead(path, "proto-a"); // no-op, no file exists
-    setHotHead(path, "proto-a", meta());
-    setHotHead(path, "proto-b", meta());
-    clearHotHead(path, "proto-a");
-    const m = readManifest(path);
-    expect(m.hotHeads).toBeDefined();
-    expect("proto-a" in m.hotHeads!).toBe(false);
-    expect(m.hotHeads!["proto-b"]).toBeDefined();
-  });
-
-  it("clearHotHead removes the hotHeads field entirely when it's the last entry", () => {
-    setHotHead(path, "proto-a", meta());
-    clearHotHead(path, "proto-a");
-    const m = readManifest(path);
-    expect(m.hotHeads).toBeUndefined();
+    it("is the sealed toBlock when the hot head is stale (behind sealed)", async () => {
+      const m = await Manifest.load(store);
+      await m.appendChunk("proto", meta({ toBlock: "0x50" }));
+      await m.setHotHead("proto", meta({ toBlock: "0x30" }));
+      expect(m.lastCoveredBlock("proto")).toBe(0x50n);
+    });
   });
 });

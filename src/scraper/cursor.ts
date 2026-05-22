@@ -1,28 +1,42 @@
-import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import type { Hex } from "viem";
+import type { Store } from "../storage/store.js";
 
-// Keyed by the opaque protocol-instance id. `lastScrapedBlock` is the last block
-// covered by a successful run; the next run resumes at lastScrapedBlock + 1.
-export type Cursor = Record<string, { lastScrapedBlock: Hex }>;
+const CURSOR_KEY = "cursor.json";
 
-export function readCursor(path: string): Cursor {
-  try {
-    return JSON.parse(readFileSync(path, "utf8")) as Cursor;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
-    // A corrupt cursor is a hard error — silently treating it as empty would
-    // re-scrape from the cold-start block and flood the downstream consumer.
-    throw new Error(`cursor ${path}: ${(err as Error).message}`);
+// The standalone scraper's resume pointer, keyed by the opaque protocol-instance
+// id. `lastScrapedBlock` is the last block covered by a successful run; the next
+// run resumes at lastScrapedBlock + 1. Only used by direct scraper CLI runs —
+// the orchestrator derives resume points from the manifest instead.
+export class Cursor {
+  private constructor(
+    private readonly store: Store,
+    private readonly key: string,
+    private data: Record<string, { lastScrapedBlock: Hex }>,
+  ) {}
+
+  static async load(store: Store, key: string = CURSOR_KEY): Promise<Cursor> {
+    const raw = await store.get(key);
+    if (!raw) return new Cursor(store, key, {});
+    try {
+      const data = JSON.parse(raw.toString("utf8")) as Record<string, { lastScrapedBlock: Hex }>;
+      return new Cursor(store, key, data);
+    } catch (err) {
+      // A corrupt cursor is a hard error — silently treating it as empty would
+      // re-scrape from the cold-start block and flood the downstream consumer.
+      throw new Error(`cursor ${key}: ${(err as Error).message}`);
+    }
   }
-}
 
-// Atomic update: write a sibling temp file, then rename over the target. The
-// rename is atomic on a single filesystem, so a crash mid-write cannot leave a
-// half-written cursor. Not safe for concurrent runs sharing one cursor file.
-export function writeCursor(path: string, protocolId: string, lastScrapedBlock: Hex): void {
-  const cursor = readCursor(path);
-  cursor[protocolId] = { lastScrapedBlock };
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(cursor, null, 2) + "\n", "utf8");
-  renameSync(tmp, path);
+  lastScrapedBlock(protocolId: string): Hex | undefined {
+    return this.data[protocolId]?.lastScrapedBlock;
+  }
+
+  // Atomic via the Store (DiskStore: temp-file + rename).
+  async set(protocolId: string, lastScrapedBlock: Hex): Promise<void> {
+    this.data[protocolId] = { lastScrapedBlock };
+    await this.store.put(
+      this.key,
+      Buffer.from(JSON.stringify(this.data, null, 2) + "\n", "utf8"),
+    );
+  }
 }

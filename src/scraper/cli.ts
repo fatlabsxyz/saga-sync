@@ -6,9 +6,10 @@ import { fileURLToPath } from "node:url";
 import { createPublicClient, http, numberToHex } from "viem";
 import type { Hex, PublicClient } from "viem";
 import { loadConfig } from "./config.js";
-import { readCursor, writeCursor } from "./cursor.js";
+import { Cursor } from "./cursor.js";
 import { scrape } from "./scrape.js";
 import { normalize } from "./normalize.js";
+import { createStore } from "../storage/index.js";
 
 const DEFAULT_WINDOW = 2000;
 const DEFAULT_CONFIRMATIONS = 12n;
@@ -76,7 +77,7 @@ function parseCliArgs() {
     toBlock: values["to-block"] ? BigInt(values["to-block"]) : undefined,
     confirmations: values.confirmations ? BigInt(values.confirmations) : DEFAULT_CONFIRMATIONS,
     window: values.window ? Number(values.window) : DEFAULT_WINDOW,
-    cursorPath: resolve(values["cursor-dir"] ?? dirname(configPath), "cursor.json"),
+    cursorDir: resolve(values["cursor-dir"] ?? dirname(configPath)),
     dryRun: values["dry-run"] ?? false,
   };
 }
@@ -107,7 +108,12 @@ export async function assertChainId(client: PublicClient, expected: Hex): Promis
 async function main(): Promise<void> {
   const args = parseCliArgs();
   const config = loadConfig(args.configPath, args.protocolId);
-  const cursor = readCursor(args.cursorPath);
+  const cursorStore = createStore({
+    protocol: "disk",
+    baseDir: args.cursorDir,
+    dryRun: args.dryRun,
+  });
+  const cursor = await Cursor.load(cursorStore);
 
   // 1. Connect to the RPC (and verify it is on the chain the config declares)
   const client = createPublicClient({ transport: http(args.rpc) });
@@ -119,10 +125,10 @@ async function main(): Promise<void> {
     (await finalizedBlock(client)) ??
     (await client.getBlockNumber()) - args.confirmations;
 
-  const cursorEntry = cursor[args.protocolId];
+  const lastScraped = cursor.lastScrapedBlock(args.protocolId);
   const fromBlock =
     args.fromBlock ??
-    (cursorEntry ? BigInt(cursorEntry.lastScrapedBlock) + 1n : undefined) ??
+    (lastScraped ? BigInt(lastScraped) + 1n : undefined) ??
     BigInt(config.fromBlock);
 
   if (fromBlock > toBlock) {
@@ -144,10 +150,9 @@ async function main(): Promise<void> {
     count += 1;
   }
 
-  // persist progress — one cursor update per successful run
-  if (!args.dryRun) {
-    writeCursor(args.cursorPath, args.protocolId, numberToHex(toBlock));
-  }
+  // persist progress — one cursor update per successful run. In dry-run the
+  // cursor store is DryRunStore-wrapped, so this set() no-ops.
+  await cursor.set(args.protocolId, numberToHex(toBlock));
   process.stderr.write(
     `scraper: ${count} event(s) for ${args.protocolId} ` +
       `[${numberToHex(fromBlock)}, ${numberToHex(toBlock)}]` +

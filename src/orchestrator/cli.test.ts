@@ -2,63 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireLock, lastCoveredBlock } from "./cli.js";
-import type { Manifest } from "../chunk-builder/manifest.js";
-import type { ChunkMeta } from "../chunk-builder/seal.js";
+import { acquireLock } from "./cli.js";
 
-const meta = (overrides: Partial<ChunkMeta> = {}): ChunkMeta => ({
-  fromBlock: "0x10",
-  toBlock: "0x20",
-  file: "f",
-  size: "0x1",
-  digest: { type: "blake3", data: "0xaa" },
-  ...overrides,
-});
-
-describe("lastCoveredBlock", () => {
-  it("returns null when the protocol has no chunks or hot head", () => {
-    const m: Manifest = { availableStates: {} };
-    expect(lastCoveredBlock(m, "proto")).toBeNull();
-  });
-
-  it("returns null when the protocol key is absent in both maps", () => {
-    const m: Manifest = { availableStates: { other: [meta()] }, hotHeads: { other: meta() } };
-    expect(lastCoveredBlock(m, "proto")).toBeNull();
-  });
-
-  it("returns the last sealed chunk's toBlock when there is no hot head", () => {
-    const m: Manifest = {
-      availableStates: {
-        proto: [meta({ toBlock: "0x10" }), meta({ toBlock: "0x20" }), meta({ toBlock: "0x30" })],
-      },
-    };
-    expect(lastCoveredBlock(m, "proto")).toBe(0x30n);
-  });
-
-  it("returns the hot head's toBlock when it's further than any sealed chunk", () => {
-    const m: Manifest = {
-      availableStates: { proto: [meta({ toBlock: "0x20" })] },
-      hotHeads: { proto: meta({ toBlock: "0x50" }) },
-    };
-    expect(lastCoveredBlock(m, "proto")).toBe(0x50n);
-  });
-
-  it("returns the sealed toBlock when the hot head is stale (behind sealed)", () => {
-    const m: Manifest = {
-      availableStates: { proto: [meta({ toBlock: "0x50" })] },
-      hotHeads: { proto: meta({ toBlock: "0x30" }) },
-    };
-    expect(lastCoveredBlock(m, "proto")).toBe(0x50n);
-  });
-
-  it("returns the hot head's toBlock when there are no sealed chunks", () => {
-    const m: Manifest = {
-      availableStates: {},
-      hotHeads: { proto: meta({ toBlock: "0x100" }) },
-    };
-    expect(lastCoveredBlock(m, "proto")).toBe(0x100n);
-  });
-});
+// lastCoveredBlock moved onto the Manifest class — its cases now live in
+// src/chunk-builder/manifest.test.ts.
 
 describe("acquireLock", () => {
   let dir: string;

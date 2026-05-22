@@ -16,11 +16,10 @@ import type { PublicClient } from "viem";
 import { finalizedBlock, assertChainId } from "../scraper/cli.js";
 import { loadAllProtocols } from "../scraper/config.js";
 import type { ScraperTarget } from "../scraper/config.js";
-import { readManifest, setHotHead, clearHotHead } from "../chunk-builder/manifest.js";
-import type { Manifest } from "../chunk-builder/manifest.js";
-import { sealChunk, readChunkFile } from "../chunk-builder/seal.js";
-import type { ChunkMeta } from "../chunk-builder/seal.js";
-import type { CanonicalEvent } from "../scraper/normalize.js";
+import { createStore } from "../storage/index.js";
+import { Manifest } from "../chunk-builder/manifest.js";
+import type { ChunkMeta } from "../chunk-builder/manifest.js";
+import { ChunkArchive } from "../chunk-builder/archive.js";
 import { runProtocolOnce } from "./pipeline.js";
 
 const DEFAULT_WINDOW = 2000;
@@ -104,7 +103,8 @@ function parseCliArgs() {
 }
 
 // Atomic lock acquisition with stale-pid recovery. Returns true if we got the
-// lock, false if another live process already holds it. Throws on hard errors.
+// lock, false if another live process already holds it. Disk-only by design —
+// the lock is a local single-machine coordination primitive, not object storage.
 export function acquireLock(path: string): boolean {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -132,12 +132,10 @@ export function acquireLock(path: string): boolean {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== "EEXIST") throw err;
 
-      // Lock exists; check whether the recorded pid is still alive.
       let stalePid: number;
       try {
         stalePid = parseInt(readFileSync(path, "utf8").trim(), 10);
       } catch {
-        // Couldn't read the lockfile (race?) — try again
         continue;
       }
       if (!Number.isFinite(stalePid) || stalePid <= 0) {
@@ -150,8 +148,7 @@ export function acquireLock(path: string): boolean {
       }
       try {
         process.kill(stalePid, 0);
-        // Owner is alive
-        return false;
+        return false; // owner alive
       } catch (e) {
         const ec = (e as NodeJS.ErrnoException).code;
         if (ec === "ESRCH") {
@@ -162,71 +159,46 @@ export function acquireLock(path: string): boolean {
           }
           continue;
         }
-        // EPERM: process exists but we can't signal it — treat as alive
-        return false;
+        return false; // EPERM: exists but unsignalable — treat as alive
       }
     }
   }
   return false;
 }
 
-// Highest block any artifact (sealed chunk or hot head) covers for a protocol.
-// Robust to the post-crash overlap case where a sealed chunk consumed the hot
-// head's range but the hot-head entry wasn't yet cleared from the manifest.
-export function lastCoveredBlock(manifest: Manifest, protocolId: string): bigint | null {
-  const chunks = manifest.availableStates[protocolId];
-  const last = chunks && chunks.length > 0 ? chunks[chunks.length - 1] : undefined;
-  const sealedTo = last ? BigInt(last.toBlock) : null;
-  const hot = manifest.hotHeads?.[protocolId];
-  const hotTo = hot ? BigInt(hot.toBlock) : null;
-  if (sealedTo === null && hotTo === null) return null;
-  if (sealedTo === null) return hotTo;
-  if (hotTo === null) return sealedTo;
-  return sealedTo > hotTo ? sealedTo : hotTo;
-}
-
-// Process one protocol: load + clean any prior hot head, loop in batches,
-// persist the final trailing accumulator as the new hot head. Returns the
-// total number of immutable chunks sealed across all batches.
+// Process one protocol: clean any stale hot head, loop in batches, persist the
+// final trailing accumulator as the new hot head.
 async function processProtocol(args: {
   client: PublicClient;
   protocolId: string;
   protocol: ScraperTarget;
-  outputDir: string;
-  manifestPath: string;
+  archive: ChunkArchive;
   manifest: Manifest;
   tip: bigint;
   batchSize: bigint;
   window: number;
   sizeLimit: number;
 }): Promise<{ ranBatches: number; sealedChunks: number; finalHotHead: ChunkMeta | null }> {
-  const { manifestPath, outputDir, protocolId, protocol, tip, batchSize } = args;
+  const { manifest, archive, protocolId, protocol, tip, batchSize } = args;
 
-  // 1. Resolve where to start. Take the max() of hot head's toBlock and the
-  // last sealed chunk's toBlock — that's robust to a crash-post-seal-pre-clear
-  // state where the hot head still points at an obsolete range.
-  const lastSealed = (() => {
-    const chunks = args.manifest.availableStates[protocolId];
-    const last = chunks && chunks.length > 0 ? chunks[chunks.length - 1] : undefined;
-    return last ? BigInt(last.toBlock) : null;
-  })();
+  // 1. Resolve where to start. Take the max() of the hot head's toBlock and the
+  // last sealed chunk's toBlock — robust to a crash-post-seal-pre-clear state.
+  const sealedChunks = manifest.sealedChunks(protocolId);
+  const lastSealedChunk = sealedChunks.length > 0 ? sealedChunks[sealedChunks.length - 1] : undefined;
+  const lastSealed = lastSealedChunk ? BigInt(lastSealedChunk.toBlock) : null;
 
-  const recordedHot = args.manifest.hotHeads?.[protocolId];
+  const recordedHot = manifest.hotHead(protocolId);
   const recordedHotTo = recordedHot ? BigInt(recordedHot.toBlock) : null;
 
-  // Detect stale hot head: its toBlock is no further forward than what's
-  // already sealed. Clear it from the manifest and unlink the file (best-effort).
+  // Stale hot head: its toBlock is no further forward than what's already
+  // sealed. Clear it from the manifest and delete the file (best-effort).
   let validHot = recordedHot;
   if (recordedHot && lastSealed !== null && recordedHotTo !== null && recordedHotTo <= lastSealed) {
     process.stderr.write(
-      `orchestrator: ${protocolId} — stale hot head detected (toBlock ${recordedHot.toBlock} <= sealed ${numberToHex(lastSealed)}); cleaning up\n`,
+      `orchestrator: ${protocolId} — stale hot head (toBlock ${recordedHot.toBlock} <= sealed ${numberToHex(lastSealed)}); cleaning up\n`,
     );
-    clearHotHead(manifestPath, protocolId);
-    try {
-      unlinkSync(join(outputDir, recordedHot.file));
-    } catch {
-      /* already gone or never on this disk */
-    }
+    await manifest.clearHotHead(protocolId);
+    await archive.delete(recordedHot);
     validHot = undefined;
   }
 
@@ -241,18 +213,14 @@ async function processProtocol(args: {
     return { ranBatches: 0, sealedChunks: 0, finalHotHead: null };
   }
 
-  // 2. Load the prior hot head events into memory (will be passed as the seed
-  // for the first batch).
-  let trailing: { events: CanonicalEvent[]; fromBlock: bigint; toBlock: bigint } | undefined;
+  // 2. Load the prior hot head's events — the seed for the first batch.
+  let trailing: { events: Awaited<ReturnType<ChunkArchive["readEvents"]>>; fromBlock: bigint } | undefined;
   if (validHot) {
-    const events = readChunkFile(join(outputDir, validHot.file));
     trailing = {
-      events,
+      events: await archive.readEvents(validHot),
       fromBlock: BigInt(validHot.fromBlock),
-      toBlock: BigInt(validHot.toBlock),
     };
   }
-  const priorHotFile = validHot?.file ?? null;
   const sizeLimit = protocol.maxSizeBytes ?? args.sizeLimit;
 
   // 3. Batch loop. Each batch's trailing carries into the next as the seed.
@@ -260,8 +228,8 @@ async function processProtocol(args: {
   let totalSealed = 0;
   let ranBatches = 0;
   while (batchStart <= tip) {
-    const batchEndCandidate = batchStart + batchSize - 1n;
-    const batchEnd = batchEndCandidate > tip ? tip : batchEndCandidate;
+    const candidate = batchStart + batchSize - 1n;
+    const batchEnd = candidate > tip ? tip : candidate;
 
     const result = await runProtocolOnce({
       client: args.client,
@@ -270,8 +238,9 @@ async function processProtocol(args: {
       toBlock: batchEnd,
       events: protocol.events,
       sizeLimit,
-      outputDir,
       window: args.window,
+      archive,
+      manifest,
       ...(trailing && {
         hotHead: { events: trailing.events, fromBlock: trailing.fromBlock },
       }),
@@ -284,27 +253,20 @@ async function processProtocol(args: {
   }
 
   // 4. Persist the final trailing accumulator as the new hot head. Even when
-  // events is empty, the range advances and the manifest needs to reflect that
-  // we've scanned up to here — so a subsequent run starts from the right block.
+  // events is empty the range advances, so the manifest must reflect it.
   let finalHotHead: ChunkMeta | null = null;
   if (trailing) {
-    const newHotMeta = sealChunk(
-      trailing.events,
-      { from: trailing.fromBlock, to: trailing.toBlock },
-      { outputDir, protocolId, dryRun: false, hot: true },
-    );
-    setHotHead(manifestPath, protocolId, newHotMeta);
-    finalHotHead = newHotMeta;
+    const trailingState = trailing;
+    finalHotHead = await archive.writeHotHead(protocolId, trailingState.events, {
+      from: trailingState.fromBlock,
+      to: tip + 1n,
+    });
+    await manifest.setHotHead(protocolId, finalHotHead);
 
     // Delete the prior hot-head file if the new file has a different name
-    // (which it does whenever the toBlock advanced — i.e., always, unless the
-    // batch was a no-op).
-    if (priorHotFile && priorHotFile !== newHotMeta.file) {
-      try {
-        unlinkSync(join(outputDir, priorHotFile));
-      } catch {
-        /* already gone */
-      }
+    // (it does whenever the range advanced — i.e., always, unless a no-op tick).
+    if (validHot && validHot.file !== finalHotHead.file) {
+      await archive.delete(validHot);
     }
   }
 
@@ -314,21 +276,23 @@ async function processProtocol(args: {
 async function main(): Promise<void> {
   const args = parseCliArgs();
   const lockDir = args.lockDir ?? args.outputDir;
-  if (!args.dryRun) {
-    mkdirSync(args.outputDir, { recursive: true });
-    mkdirSync(lockDir, { recursive: true });
-  }
 
-  // Dry-run is read-only: don't hold the lock.
-  const lockPath = join(lockDir, ".orchestrator.lock");
-  if (!args.dryRun && !acquireLock(lockPath)) {
-    process.stderr.write(`orchestrator: another instance is running (lock ${lockPath}); exiting\n`);
-    return;
+  // Dry-run is read-only: don't create dirs or hold the lock.
+  if (!args.dryRun) {
+    mkdirSync(lockDir, { recursive: true });
+    const lockPath = join(lockDir, ".orchestrator.lock");
+    if (!acquireLock(lockPath)) {
+      process.stderr.write(
+        `orchestrator: another instance is running (lock ${lockPath}); exiting\n`,
+      );
+      return;
+    }
   }
 
   const protocols = loadAllProtocols(args.configPath);
-  const manifestPath = join(args.outputDir, "index.json");
-  const manifest = readManifest(manifestPath);
+  const store = createStore({ protocol: "disk", baseDir: args.outputDir, dryRun: args.dryRun });
+  const archive = new ChunkArchive(store);
+  const manifest = await Manifest.load(store);
 
   const client: PublicClient = createPublicClient({ transport: http(args.rpc) });
   const tip =
@@ -350,57 +314,49 @@ async function main(): Promise<void> {
     try {
       await assertChainId(client, protocol.chainId);
     } catch (err) {
-      process.stderr.write(
-        `orchestrator: skipping ${protocolId} — ${(err as Error).message}\n`,
-      );
+      process.stderr.write(`orchestrator: skipping ${protocolId} — ${(err as Error).message}\n`);
       skipped += 1;
       continue;
     }
 
-    const startCovered = lastCoveredBlock(manifest, protocolId);
-    const startFrom = startCovered ?? BigInt(protocol.fromBlock);
+    const startFrom = manifest.lastCoveredBlock(protocolId) ?? BigInt(protocol.fromBlock);
     if (startFrom > tip) {
       skipped += 1;
       continue;
     }
 
     if (args.dryRun) {
+      const batches = Math.ceil(Number((tip - startFrom + 1n) / args.batchSize)) || 1;
       process.stderr.write(
         `orchestrator: [dry-run] ${protocolId} would scan ` +
-          `[${numberToHex(startFrom)}, ${numberToHex(tip)}] in ` +
-          `${Math.ceil(Number((tip - startFrom + 1n) / args.batchSize)) || 1} batch(es)\n`,
+          `[${numberToHex(startFrom)}, ${numberToHex(tip)}] in ${batches} batch(es)\n`,
       );
       ran += 1;
       continue;
     }
 
     try {
-      // Re-read manifest in case a previous protocol mutated it this tick.
-      const freshManifest = readManifest(manifestPath);
       const result = await processProtocol({
         client,
         protocolId,
         protocol,
-        outputDir: args.outputDir,
-        manifestPath,
-        manifest: freshManifest,
+        archive,
+        manifest,
         tip,
         batchSize: args.batchSize,
         window: args.window,
         sizeLimit: args.sizeLimit,
       });
-      const hotSummary = result.finalHotHead
+      const hot = result.finalHotHead
         ? ` + hot head [${result.finalHotHead.fromBlock}, ${result.finalHotHead.toBlock})`
         : "";
       process.stderr.write(
-        `orchestrator: ${protocolId} ran ${result.ranBatches} batch(es), sealed ${result.sealedChunks} chunk(s)` +
-          `${hotSummary}\n`,
+        `orchestrator: ${protocolId} ran ${result.ranBatches} batch(es), ` +
+          `sealed ${result.sealedChunks} chunk(s)${hot}\n`,
       );
       ran += 1;
     } catch (err) {
-      process.stderr.write(
-        `orchestrator: ${protocolId} failed — ${(err as Error).message}\n`,
-      );
+      process.stderr.write(`orchestrator: ${protocolId} failed — ${(err as Error).message}\n`);
       failed += 1;
     }
   }
@@ -426,5 +382,4 @@ if (isMainModule()) {
   });
 }
 
-// Exports for testing
 export { main, parseCliArgs, processProtocol };
