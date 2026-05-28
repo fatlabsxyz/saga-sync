@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DiskStore } from "./disk-store.js";
 import { DryRunStore } from "./dry-run-store.js";
+import { HttpStore } from "./http-store.js";
 import { createStore } from "./index.js";
 
 describe("DiskStore", () => {
@@ -96,6 +97,22 @@ describe("createStore", () => {
 
   it("throws a clear error for not-yet-implemented protocols", () => {
     expect(() => createStore({ protocol: "s3" })).toThrow(/not implemented/);
-    expect(() => createStore({ protocol: "http" })).toThrow(/not implemented/);
+    expect(() => createStore({ protocol: "ftp" })).toThrow(/not implemented/);
+  });
+
+  it("builds an HttpStore for protocol 'http' from settings.baseUrl", () => {
+    expect(
+      createStore({ protocol: "http", settings: { baseUrl: "https://cdn.example.com/" } }),
+    ).toBeInstanceOf(HttpStore);
+  });
+
+  it("builds an HttpStore from baseDir as a fallback", () => {
+    expect(createStore({ protocol: "http", baseDir: "https://cdn.example.com/" })).toBeInstanceOf(
+      HttpStore,
+    );
+  });
+
+  it("throws when http store has no baseUrl", () => {
+    expect(() => createStore({ protocol: "http" })).toThrow(/baseUrl/);
   });
 });

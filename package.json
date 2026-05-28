@@ -8,7 +8,8 @@
   },
   "bin": {
     "scraper": "dist/scraper/cli.js",
-    "chunk-builder": "dist/chunk-builder/cli.js"
+    "chunk-builder": "dist/chunk-builder/cli.js",
+    "state-client": "dist/client/cli.js"
   },
   "scripts": {
     "build": "tsc",
