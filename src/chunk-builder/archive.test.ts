@@ -40,11 +40,11 @@ describe("ChunkArchive", () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it("seals an empty chunk with the canonical empty-input blake3 digest", async () => {
+  it("seals an empty chunk with the canonical empty-input sha256 digest", async () => {
     const meta = await archive.seal("proto", [], { from: 0xc50101n, to: 0xc50200n });
     expect(meta.digest).toEqual({
-      type: "blake3",
-      data: "0xaf1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+      type: "sha256",
+      data: "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     });
   });
 

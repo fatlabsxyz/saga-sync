@@ -8,7 +8,7 @@ export type ChunkMeta = {
   toBlock: Hex;
   file: string;
   size: Hex;
-  digest: { type: "blake3"; data: Hex };
+  digest: { type: "sha256"; data: Hex };
 };
 
 // The on-disk JSON shape. `availableStates` holds immutable sealed chunks;

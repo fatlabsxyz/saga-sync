@@ -1,7 +1,6 @@
 import { gzipSync, gunzipSync } from "node:zlib";
 import { numberToHex } from "viem";
-import type { Hex } from "viem";
-import { blake3 } from "@noble/hashes/blake3.js";
+import { sha256Hex } from "../hash.js";
 import type { CanonicalEvent } from "../scraper/normalize.js";
 import type { Store } from "../storage/store.js";
 import type { ChunkMeta } from "./manifest.js";
@@ -16,7 +15,7 @@ export function buildJsonl(events: CanonicalEvent[]): Buffer {
   return Buffer.from(events.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
 }
 
-// Encodes/decodes chunk files over a Store. A chunk's digest is the blake3 of
+// Encodes/decodes chunk files over a Store. A chunk's digest is the sha256 of
 // the *uncompressed* JSONL bytes — clients verify integrity after decompressing
 // without trusting the gzip wrapper. Sealed and hot files are byte-identical for
 // the same events; only the filename suffix differs (`.jsonl.gz` vs
@@ -44,7 +43,7 @@ export class ChunkArchive {
     hot: boolean,
   ): Promise<ChunkMeta> {
     const uncompressed = buildJsonl(events);
-    const digest = `0x${Buffer.from(blake3(uncompressed)).toString("hex")}` as Hex;
+    const digest = sha256Hex(uncompressed);
     const compressed = gzipSync(uncompressed);
 
     const fromHex = numberToHex(range.from);
@@ -58,7 +57,7 @@ export class ChunkArchive {
       toBlock: toHex,
       file,
       size: numberToHex(compressed.length),
-      digest: { type: "blake3", data: digest },
+      digest: { type: "sha256", data: digest },
     };
   }
 

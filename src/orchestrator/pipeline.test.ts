@@ -75,7 +75,7 @@ describe("runProtocolOnce", () => {
     expect(sealed).toHaveLength(1);
     expect(await archive.readEvents(sealed[0]!)).toEqual([]);
     expect(sealed[0]?.digest.data).toBe(
-      "0xaf1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+      "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     );
   });
 

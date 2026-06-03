@@ -52,7 +52,7 @@ describe("fetch", () => {
   it("throws DigestMismatchError when the manifest digest is wrong", async () => {
     const events = [event()];
     const meta = await archive.seal("p", events, { from: 1n, to: 2n });
-    const tampered = { ...meta, digest: { type: "blake3" as const, data: "0xdead" as const } };
+    const tampered = { ...meta, digest: { type: "sha256" as const, data: "0xdead" as const } };
     await expect(fetchChunkFrom(store, tampered)).rejects.toThrow(DigestMismatchError);
   });
 
@@ -60,7 +60,7 @@ describe("fetch", () => {
     const events = [event()];
     const meta = await archive.seal("p", events, { from: 1n, to: 2n });
     const realBytes = await store.get(meta.file);
-    const wrongMeta = { ...meta, digest: { type: "blake3" as const, data: "0xbeef" as const } };
+    const wrongMeta = { ...meta, digest: { type: "sha256" as const, data: "0xbeef" as const } };
     expect(() => decodeAndVerify(realBytes!, wrongMeta)).toThrow(DigestMismatchError);
   });
 });

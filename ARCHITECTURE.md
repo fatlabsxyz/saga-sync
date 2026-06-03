@@ -38,7 +38,7 @@ Three composable stages sit on top of one storage abstraction:
 - **scraper** — connects to an Ethereum JSON-RPC, fetches event logs for a
   protocol over a block range, normalizes them, emits them as NDJSON.
 - **chunk-builder** — consumes that NDJSON, partitions it into size-bounded
-  immutable chunks (gzip + blake3), and maintains an append-only `index.json`
+  immutable chunks (gzip + sha256), and maintains an append-only `index.json`
   manifest. The trailing partial chunk is kept as a mutable **hot head**.
 - **orchestrator** — the cron entry point. Loops over every protocol in the
   config and runs `scrape → chunk` for each, **in-process**, in block-range
@@ -57,7 +57,7 @@ orchestrator imports them as libraries and composes them with no subprocesses.
 
 - **Node ≥ 20**, **TypeScript** (strict, ESM, `module: Node16`).
 - **Runtime dependencies** (3): `viem` (Ethereum RPC client), `zod` (config
-  validation), `@noble/hashes` (blake3).
+  validation), `@noble/hashes` (sha256).
 - **Dev dependencies**: `typescript`, `@types/node`, `tsx`, `vitest`.
 - `package.json` scripts: `build` → `tsc`, `test` → `vitest run`,
   `typecheck` → `tsc --noEmit`, `dev` → `tsx`.
@@ -164,7 +164,7 @@ Consumes `CanonicalEvent` NDJSON, produces chunk files + the manifest.
   split). `add(event)` returns a completed chunk when a size boundary was
   crossed; `finish()` returns the trailing accumulator.
 - **`archive.ts`** — `ChunkArchive` over a `Store`. `seal()` / `writeHotHead()`
-  build the JSONL, compute the blake3 digest of the **uncompressed** bytes, gzip,
+  build the JSONL, compute the sha256 digest of the **uncompressed** bytes, gzip,
   and `put` under a range-derived filename. `readEvents()` is the inverse
   (`get` + gunzip + parse). `buildJsonl()` is exported for reuse.
 - **`manifest.ts`** — `Manifest` class wrapping a `Store`. Holds `index.json` in
@@ -212,7 +212,7 @@ A replica must get these right; everything else is plumbing.
    land in exactly one chunk, even if that single block exceeds the size limit.
 
 4. **Size-bounded sealing.** A chunk is sealed when accumulated uncompressed
-   bytes would exceed `size_limit`. The digest is **blake3 of the uncompressed
+   bytes would exceed `size_limit`. The digest is **sha256 of the uncompressed
    JSONL**; the file is then gzip-compressed; `size` in the manifest is the
    **compressed** byte count.
 
@@ -369,8 +369,8 @@ The index. Written to the output directory:
         "file": "tornado-cash-1-eth-0.1-[0x8b1d26,0x9c00000).jsonl.gz",
         "size": "0xa4f3c2",
         "digest": {
-          "type": "blake3",
-          "data": "0x1234abcd…  (blake3 of the uncompressed JSONL)"
+          "type": "sha256",
+          "data": "0x1234abcd…  (sha256 of the uncompressed JSONL)"
         }
       }
     ]
@@ -381,7 +381,7 @@ The index. Written to the output directory:
       "toBlock": "0x9d12abc",
       "file": "tornado-cash-1-eth-0.1-[0x9c00000,0x9d12abc).hot.jsonl.gz",
       "size": "0x1e240",
-      "digest": { "type": "blake3", "data": "0x9abc…" }
+      "digest": { "type": "sha256", "data": "0x9abc…" }
     }
   }
 }
@@ -390,8 +390,8 @@ The index. Written to the output directory:
 - `availableStates[id]` — immutable sealed chunks, block-ordered. Cache forever.
 - `hotHeads[id]` — at most one mutable entry per protocol; absent if none.
   Re-fetch every poll; its `file` URL changes whenever the range advances.
-- `digest.data` — blake3 of the **uncompressed** JSONL; verify with
-  `gunzip <file> | blake3`.
+- `digest.data` — sha256 of the **uncompressed** JSONL; verify with
+  `gunzip -c <file> | shasum -a 256`.
 - `size` — the **compressed** file's byte length, `0x`-hex.
 
 ### 7.7 STATE — `cursor.json` (standalone scraper only)
@@ -491,7 +491,7 @@ node dist/scraper/cli.js --config ./example-config.json \
   --from-block 0xC50101 --to-block 0xC50201 --output-dir ./chunks
 
 # verify a chunk against the manifest
-gunzip -c ./chunks/<file>.jsonl.gz   # → JSONL; blake3 of these bytes == digest
+gunzip -c ./chunks/<file>.jsonl.gz | shasum -a 256   # == digest in the manifest
 ```
 
 ---

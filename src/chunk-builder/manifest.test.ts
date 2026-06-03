@@ -11,7 +11,7 @@ const meta = (overrides: Partial<ChunkMeta> = {}): ChunkMeta => ({
   toBlock: "0xc50200",
   file: "proto-[0xc50101,0xc50200).jsonl.gz",
   size: "0x1a2",
-  digest: { type: "blake3", data: "0xabcd" },
+  digest: { type: "sha256", data: "0xabcd" },
   ...overrides,
 });
 

@@ -1,18 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { blake3 } from "@noble/hashes/blake3.js";
 import type { Hex } from "viem";
 import type { ChunkMeta } from "../chunk-builder/manifest.js";
+import { sha256Hex } from "../hash.js";
 import { verifyDigest, DigestMismatchError } from "./verify.js";
 
 function metaFor(bytes: Buffer, digestOverride?: string): ChunkMeta {
-  const data = (digestOverride ??
-    `0x${Buffer.from(blake3(bytes)).toString("hex")}`) as Hex;
+  const data = (digestOverride ?? sha256Hex(bytes)) as Hex;
   return {
     fromBlock: "0x1",
     toBlock: "0x2",
     file: "p-[0x1,0x2).jsonl.gz",
     size: "0x0",
-    digest: { type: "blake3", data },
+    digest: { type: "sha256", data },
   };
 }
 
@@ -43,13 +42,13 @@ describe("verifyDigest", () => {
   });
 
   it("tolerates an un-prefixed, upper-case manifest digest", () => {
-    const hex = Buffer.from(blake3(bytes)).toString("hex").toUpperCase();
+    const hex = sha256Hex(bytes).slice(2).toUpperCase();
     expect(() => verifyDigest(metaFor(bytes, hex), bytes)).not.toThrow();
   });
 
   it("rejects an unsupported digest type", () => {
     const meta = metaFor(bytes);
-    (meta.digest as { type: string }).type = "sha256";
+    (meta.digest as { type: string }).type = "blake3";
     expect(() => verifyDigest(meta, bytes)).toThrow(/unsupported digest type/);
   });
 });

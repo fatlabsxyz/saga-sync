@@ -1,4 +1,4 @@
-import { blake3 } from "@noble/hashes/blake3.js";
+import { sha256Hex } from "../hash.js";
 import type { ChunkMeta } from "../chunk-builder/manifest.js";
 
 // Thrown when a chunk's recomputed digest does not match the manifest. Carries
@@ -18,15 +18,15 @@ export class DigestMismatchError extends Error {
   }
 }
 
-// Recompute the blake3 of the chunk's uncompressed JSONL bytes and compare to
+// Recompute the sha256 of the chunk's uncompressed JSONL bytes and compare to
 // the manifest entry. Mandatory on every fetched chunk (cache hits included) —
 // the whole point of the system is verifiable distribution.
 export function verifyDigest(meta: ChunkMeta, uncompressed: Buffer): void {
-  if (meta.digest.type !== "blake3") {
+  if (meta.digest.type !== "sha256") {
     throw new Error(`unsupported digest type ${meta.digest.type} for ${meta.file}`);
   }
   const expected = normalize(meta.digest.data);
-  const actual = `0x${Buffer.from(blake3(uncompressed)).toString("hex")}`;
+  const actual = sha256Hex(uncompressed);
   if (expected !== actual) {
     throw new DigestMismatchError(meta, expected, actual);
   }

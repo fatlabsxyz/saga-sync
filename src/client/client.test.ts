@@ -171,7 +171,7 @@ describe("Client", () => {
   it("surfaces a digest mismatch from the iterator", async () => {
     await publish(source, [{ from: 1n, to: 2n, events: [event(1n)] }]);
     // Replace the chunk with a *valid* gzip of different content, so the gzip
-    // wrapper decodes cleanly but the recomputed blake3 won't match the manifest.
+    // wrapper decodes cleanly but the recomputed sha256 won't match the manifest.
     const key = [...source.data.keys()].find((k) => k.endsWith(".jsonl.gz"))!;
     source.data.set(key, gzipSync(Buffer.from("tampered\n")));
     const client = new Client({ source });
