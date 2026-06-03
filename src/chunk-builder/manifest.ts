@@ -86,6 +86,38 @@ export class Manifest {
     return sealedTo > hotTo ? sealedTo : hotTo;
   }
 
+  // Every protocol id with any artifact (sealed chunk or hot head), sorted. A
+  // protocol can appear with only a hot head if nothing has sealed yet.
+  protocolIds(): string[] {
+    const ids = new Set<string>(Object.keys(this.data.availableStates));
+    if (this.data.hotHeads) for (const id of Object.keys(this.data.hotHeads)) ids.add(id);
+    return [...ids].sort();
+  }
+
+  // Lowest block covered for a protocol — the first sealed chunk's `fromBlock`,
+  // or the hot head's if nothing has sealed yet. Null for an unknown protocol.
+  firstCoveredBlock(protocolId: string): bigint | null {
+    const chunks = this.data.availableStates[protocolId];
+    if (chunks && chunks.length > 0) return BigInt(chunks[0]!.fromBlock);
+    const hot = this.data.hotHeads?.[protocolId];
+    return hot ? BigInt(hot.fromBlock) : null;
+  }
+
+  // Holes in a protocol's sealed-chunk chain: each consecutive pair whose ranges
+  // are not adjacent, as the missing `[prev.toBlock, next.fromBlock)` range. An
+  // empty array means the sealed history is contiguous. The hot head is excluded
+  // — it is the live tail, not part of the sealed record.
+  gaps(protocolId: string): { from: Hex; to: Hex }[] {
+    const chunks = this.data.availableStates[protocolId] ?? [];
+    const holes: { from: Hex; to: Hex }[] = [];
+    for (let i = 1; i < chunks.length; i++) {
+      if (BigInt(chunks[i - 1]!.toBlock) !== BigInt(chunks[i]!.fromBlock)) {
+        holes.push({ from: chunks[i - 1]!.toBlock, to: chunks[i]!.fromBlock });
+      }
+    }
+    return holes;
+  }
+
   // Raw snapshot — for inspection and tests.
   snapshot(): ManifestData {
     return this.data;

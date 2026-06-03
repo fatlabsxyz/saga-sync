@@ -100,4 +100,69 @@ describe("Manifest", () => {
       expect(m.lastCoveredBlock("proto")).toBe(0x50n);
     });
   });
+
+  describe("protocolIds", () => {
+    it("is empty for an empty manifest", async () => {
+      const m = await Manifest.load(store);
+      expect(m.protocolIds()).toEqual([]);
+    });
+
+    it("unions sealed and hot-head protocols, sorted and deduped", async () => {
+      const m = await Manifest.load(store);
+      await m.appendChunk("proto-b", meta());
+      await m.appendChunk("proto-a", meta());
+      await m.setHotHead("proto-a", meta()); // dup of a sealed one
+      await m.setHotHead("proto-c", meta()); // hot-head-only protocol
+      expect(m.protocolIds()).toEqual(["proto-a", "proto-b", "proto-c"]);
+    });
+  });
+
+  describe("firstCoveredBlock", () => {
+    it("is null for an unknown protocol", async () => {
+      const m = await Manifest.load(store);
+      expect(m.firstCoveredBlock("proto")).toBeNull();
+    });
+
+    it("is the first sealed chunk's fromBlock", async () => {
+      const m = await Manifest.load(store);
+      await m.appendChunk("proto", meta({ fromBlock: "0x10", toBlock: "0x20" }));
+      await m.appendChunk("proto", meta({ fromBlock: "0x20", toBlock: "0x30" }));
+      expect(m.firstCoveredBlock("proto")).toBe(0x10n);
+    });
+
+    it("falls back to the hot head when nothing has sealed yet", async () => {
+      const m = await Manifest.load(store);
+      await m.setHotHead("proto", meta({ fromBlock: "0x40" }));
+      expect(m.firstCoveredBlock("proto")).toBe(0x40n);
+    });
+  });
+
+  describe("gaps", () => {
+    it("is empty for a gapless chain", async () => {
+      const m = await Manifest.load(store);
+      await m.appendChunk("proto", meta({ fromBlock: "0x0", toBlock: "0x10" }));
+      await m.appendChunk("proto", meta({ fromBlock: "0x10", toBlock: "0x20" }));
+      await m.appendChunk("proto", meta({ fromBlock: "0x20", toBlock: "0x30" }));
+      expect(m.gaps("proto")).toEqual([]);
+    });
+
+    it("reports each hole as the missing [prev.toBlock, next.fromBlock) range", async () => {
+      const m = await Manifest.load(store);
+      await m.appendChunk("proto", meta({ fromBlock: "0x0", toBlock: "0x10" }));
+      await m.appendChunk("proto", meta({ fromBlock: "0x20", toBlock: "0x30" })); // hole [0x10,0x20)
+      await m.appendChunk("proto", meta({ fromBlock: "0x30", toBlock: "0x40" }));
+      await m.appendChunk("proto", meta({ fromBlock: "0x50", toBlock: "0x60" })); // hole [0x40,0x50)
+      expect(m.gaps("proto")).toEqual([
+        { from: "0x10", to: "0x20" },
+        { from: "0x40", to: "0x50" },
+      ]);
+    });
+
+    it("is empty for fewer than two chunks", async () => {
+      const m = await Manifest.load(store);
+      expect(m.gaps("proto")).toEqual([]);
+      await m.appendChunk("proto", meta());
+      expect(m.gaps("proto")).toEqual([]);
+    });
+  });
 });
