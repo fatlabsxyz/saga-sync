@@ -18,21 +18,24 @@ verifying them, instead of each re-scraping the chain.
 
 ## 1. The pipeline
 
-Three composable stages sit on top of one storage abstraction:
+A **producer** side (scrape → package → publish) and a **consumer** side
+(download → verify → use) meet at one storage abstraction:
 
 ```
-            ┌─────────┐   CanonicalEvent    ┌───────────────┐   .jsonl.gz chunks
-  RPC  ───▶ │ scraper │ ─── NDJSON stream ─▶│ chunk-builder │ ─── + index.json ──▶ Store
-            └─────────┘                     └───────────────┘
-                  ▲                                 ▲
-                  └────────────┬────────────────────┘
-                        ┌──────────────┐
-                        │ orchestrator │   cron entry point — composes the two
-                        └──────────────┘   in-process, in block batches
-                                 │
-                        ┌──────────────┐
-                        │    Store     │   disk today; S3/HTTP slot in later
-                        └──────────────┘
+  PRODUCER                                                      CONSUMER
+            ┌─────────┐  CanonicalEvent  ┌───────────────┐               ┌────────┐
+  RPC  ───▶ │ scraper │ ─ NDJSON stream ▶│ chunk-builder │               │ client │ ─▶ app
+            └─────────┘                  └───────────────┘               └────────┘
+                  ▲                              ▲                            │
+                  └───────────┬──────────────────┘                  fetch +  │
+                       ┌──────────────┐                             verify    │
+                       │ orchestrator │  cron entry point                     │
+                       └──────────────┘                                       │
+                              │ write                                   read  │
+                        ┌─────────────────────────────────────────────────────┐
+                        │                       Store                          │
+                        │   disk (producer) · HTTP/CDN read-side (consumer)    │
+                        └─────────────────────────────────────────────────────┘
 ```
 
 - **scraper** — connects to an Ethereum JSON-RPC, fetches event logs for a
@@ -43,13 +46,19 @@ Three composable stages sit on top of one storage abstraction:
 - **orchestrator** — the cron entry point. Loops over every protocol in the
   config and runs `scrape → chunk` for each, **in-process**, in block-range
   **batches**. Owns the hot-head lifecycle.
+- **client** — the consumer. Reads the manifest, downloads a protocol's chunks +
+  hot head, **verifies every chunk's sha256** against the manifest, and yields
+  the merged `CanonicalEvent` stream to an application. Trusts the manifest URL,
+  verifies everything under it.
 - **storage** — a `Store` interface abstracting all object persistence.
-  `DiskStore` is the only backend today; the seam exists so S3 / CDN buckets can
-  be added without touching anything else.
+  `DiskStore` (producer writes, local read) and `HttpStore` (consumer read-side
+  over a CDN) exist today; the seam exists so S3 buckets can be added without
+  touching anything else.
 
 Each stage is **both a standalone CLI and an importable library**. The scraper
 and chunk-builder can be run by hand and piped (`scraper | chunk-builder`); the
-orchestrator imports them as libraries and composes them with no subprocesses.
+orchestrator and client import them as libraries and compose them with no
+subprocesses.
 
 ---
 
@@ -76,7 +85,9 @@ src/
     store.ts          Store interface — put / get / delete / list (all async)
     disk-store.ts     DiskStore: local FS, atomic write via temp-file + rename
     dry-run-store.ts  DryRunStore: decorator that no-ops writes, delegates reads
+    http-store.ts     HttpStore: read-only fetch over a base URL (consumer side)
     index.ts          createStore() factory + re-exports
+  hash.ts             sha256Hex() — the one place the digest algorithm is named
   scraper/
     config.ts         load + zod-validate the config; loadConfig / loadAllProtocols
     normalize.ts      raw RPC log → CanonicalEvent
@@ -91,10 +102,19 @@ src/
   orchestrator/
     pipeline.ts       runProtocolOnce — composes scrape + chunk-builder in-process
     cli.ts            orchestrator entry point; lockfile, batch loop, hot-head lifecycle
+  client/
+    fetch.ts          decodeAndVerify + fetchChunkFrom — gunzip, verify, parse a chunk
+    verify.ts         verifyDigest + DigestMismatchError — sha256 check against manifest
+    manifest.ts       loadManifest + selectSealedChunks/selectHotHead range helpers
+    client.ts         Client class — merged streamEvents over sealed chunks + hot head
+    format.ts         humanBytes + table — CLI rendering helpers
+    cli.ts            client entry point; protocols/info/head/chunks/stream subcommands
 ```
 
-Every module has a sibling `*.test.ts` (vitest). ~91 unit tests; the pipeline is
-also verified end-to-end against a live mainnet RPC.
+Every module has a sibling `*.test.ts` (vitest). ~141 unit tests; both the
+producer pipeline and the client are also verified end-to-end against
+locally-published state served over HTTP (and the producer against a live
+mainnet RPC).
 
 ---
 
@@ -120,9 +140,14 @@ interface Store {
 - **`DryRunStore`** — decorates another `Store`; `put`/`delete` become no-ops,
   `get`/`list` pass through. This is how `--dry-run` is implemented — every other
   class stays oblivious to dry-run.
+- **`HttpStore`** — read-only, backed by a base URL: `get` fetches
+  `${baseUrl}/${key}`, returning `null` on 404. `put`/`delete`/`list` throw (same
+  throw-on-unsupported pattern `DryRunStore` uses for the inverse case). The
+  consumer read-side; pairs with a CDN-fronted bucket.
 - **`createStore(cfg)`** — maps `cfg.protocol` (`disk` | `s3` | `http` | `ftp`)
-  to an implementation. Only `disk` exists; the rest throw a clear error. If
-  `cfg.dryRun` is set, the result is wrapped in `DryRunStore`.
+  to an implementation. `disk` and `http` exist; `s3` / `ftp` throw a clear error
+  until their classes are added. If `cfg.dryRun` is set, the result is wrapped in
+  `DryRunStore`.
 
 ### 4.2 scraper/
 
@@ -192,6 +217,31 @@ The cron entry point. Composes the other two stages in-process.
   loops `[start, tip]` in `--batch-size` steps calling `runProtocolOnce`, and
   persists the final trailing accumulator as the new hot head. Also exports
   `acquireLock(path)`.
+
+### 4.5 client/
+
+The consumer. Given a manifest URL it reconstructs a protocol's event history by
+downloading the static files and verifying them — no trust in the publisher
+beyond the manifest itself. Reads through the same `Store` seam (`HttpStore`),
+with an optional local cache `Store`.
+
+- **`verify.ts`** — `verifyDigest(meta, bytes)` recomputes the sha256 of a
+  chunk's uncompressed JSONL and compares it to the manifest entry. **Mandatory**
+  on every chunk, cache hits included; mismatch throws `DigestMismatchError`.
+- **`fetch.ts`** — `decodeAndVerify` (gunzip → verify → JSONL parse) and
+  `fetchChunkFrom(store, meta)`. A missing file throws `ChunkNotFoundError`,
+  distinct from a digest mismatch so callers can tell "absent" from "tampered".
+- **`manifest.ts`** — `loadManifest(store)` (single fetch; throws if absent) plus
+  pure `selectSealedChunks` / `selectHotHead` range-overlap helpers. Re-uses the
+  producer-side `Manifest` class so the shape is defined once.
+- **`client.ts`** — the `Client` class. `streamEvents(protocolId, {from,to})`
+  yields the merged `CanonicalEvent` stream in block order: sealed chunks (fetched
+  with a bounded-concurrency sliding window, yielded in submission order) then the
+  hot head (re-fetched every call, never cached). Sealed chunks optionally cache
+  to a local `Store` — safe because they are immutable and content-addressed, and
+  re-verified on every read.
+- **`cli.ts`** — `protocols` / `info` / `head` / `chunks` (manifest-only, no chunk
+  downloads) and `stream` (the full download). See §8.
 
 ---
 
@@ -272,7 +322,8 @@ Invariant: a protocol's sealed chunks + its hot head partition
 
 ### 7.1 INPUT — scraper config JSON (`--config`)
 
-Consumed by all three tools. `example-config.json`:
+Consumed by the producer tools (scraper / chunk-builder / orchestrator); the
+client needs only a manifest URL, not the config. `example-config.json`:
 
 ```json
 {
@@ -415,7 +466,7 @@ removed on exit; a stale lock (dead pid) is reclaimed automatically.
 
 ---
 
-## 8. The three CLIs
+## 8. The four CLIs
 
 ### scraper — `node dist/scraper/cli.js`
 
@@ -469,6 +520,33 @@ The intended cron entry point — one daily entry handles every protocol:
   --rpc https://ethereum-rpc.publicnode.com --output-dir ./chunks
 ```
 
+### client — `node dist/client/cli.js`
+
+The consumer CLI. Subcommands take a `<manifest-url>` (the manifest is read from
+`<url>/index.json`); the query commands fetch **only** the manifest.
+
+```
+state-client <command> <manifest-url> [<protocol-id>] [options]
+
+  protocols <url>            list every protocol + summary       (alias: ls)
+  info      <url> <id>       range, download size, hot head, gap/contiguity check
+  head      <url> <id>       latest covered block (alias: latest)
+  chunks    <url> <id>       list a protocol's chunks
+  stream    <url> <id>       download + verify + emit NDJSON
+
+  --json                 machine-readable output instead of human tables
+  --from-block <hex>     info/chunks/stream: lower bound of the block range
+  --to-block <hex>       info/chunks/stream: upper bound (exclusive)
+  --since-block <hex>    head: exit 3 if no block beyond this is covered
+  --hot                  chunks: include the mutable hot head
+  --cache-dir <path>     stream: local cache of verified sealed chunks
+  --concurrency <n>      stream: parallel chunk fetches (default 4)
+```
+
+`stream` emits NDJSON on stdout + a summary on stderr; the query commands print a
+human table or, with `--json`, structured JSON. Exit codes: 0 ok · 1 usage /
+fetch / not-found · 3 `head --since-block` found nothing newer.
+
 ---
 
 ## 9. Running it
@@ -476,7 +554,7 @@ The intended cron entry point — one daily entry handles every protocol:
 ```bash
 npm install
 npm run build
-npm test                       # ~91 unit tests
+npm test                       # ~141 unit tests
 
 # orchestrator — the normal path
 node dist/orchestrator/cli.js --config ./example-config.json \
@@ -492,23 +570,31 @@ node dist/scraper/cli.js --config ./example-config.json \
 
 # verify a chunk against the manifest
 gunzip -c ./chunks/<file>.jsonl.gz | shasum -a 256   # == digest in the manifest
+
+# consume the published state (serve ./chunks over HTTP, then):
+node dist/client/cli.js info   http://localhost:8080/ tornado-cash-1-eth-0.1
+node dist/client/cli.js stream http://localhost:8080/ tornado-cash-1-eth-0.1 \
+  --cache-dir ./client-cache > events.ndjson
 ```
 
 ---
 
 ## 10. Scope boundaries
 
-Built and verified: scraper, chunk-builder, orchestrator, storage abstraction,
-hot heads, batching.
+Built and verified: scraper, chunk-builder, orchestrator, storage abstraction
+(`DiskStore` + `HttpStore`), hot heads, batching, and the client library + CLI.
 
 Not yet built (and where they slot in):
 
-- **Client library** — downloads the manifest + chunks, verifies digests, hands
-  raw `CanonicalEvent`s to an application. Would consume the same `Store` seam
-  for its read path.
-- **Non-disk stores** — `S3Store` / `HttpStore` are a single new class each plus
-  one `case` in `createStore`; no other module changes.
-- **Manifest signing** — the broader spec anticipates signed manifests; that is
-  a publish-step concern, separate from the orchestrator.
+- **`S3Store`** — the producer publish-side counterpart to `HttpStore`: one new
+  class implementing `put`/`get`/`delete`/`list`, plus one `case "s3"` in
+  `createStore`; no other module changes.
+- **Browser build of the client** — today the client uses `node:zlib` and
+  `Buffer`, so it runs under Node only. Going isomorphic means gzip via
+  `DecompressionStream`, `Buffer` → `Uint8Array`, and swapping `sha256Hex` to
+  native `crypto.subtle` (which would drop `@noble/hashes` entirely).
+- **Manifest signing** — the broader spec anticipates signed manifests; the
+  client's verify path is where a signature check would extend. A publish-step
+  concern, separate from the orchestrator.
 - **Per-protocol storage / multi-chain in one run** — today one `Store` and one
   chain per orchestrator invocation.
