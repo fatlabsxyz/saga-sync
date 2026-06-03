@@ -32,7 +32,14 @@ export class Manifest {
   ) {}
 
   static async load(store: Store, key: string = MANIFEST_KEY): Promise<Manifest> {
-    const raw = await store.get(key);
+    return Manifest.fromRaw(store, key, await store.get(key));
+  }
+
+  // Parse already-fetched manifest bytes into a Manifest, so a caller that has
+  // (or must presence-check) the bytes does not fetch them a second time. A
+  // `null` raw yields an empty manifest — the publisher's first-run case.
+  // Consumers that require the manifest to exist null-check before calling.
+  static fromRaw(store: Store, key: string, raw: Buffer | null): Manifest {
     let data: ManifestData = { availableStates: {} };
     if (raw) {
       let parsed: ManifestData;

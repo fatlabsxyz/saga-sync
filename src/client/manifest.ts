@@ -15,7 +15,7 @@ export async function loadManifest(
 ): Promise<PublisherManifest> {
   const raw = await store.get(key);
   if (!raw) throw new Error(`manifest not found at key "${key}"`);
-  return PublisherManifest.load(store, key);
+  return PublisherManifest.fromRaw(store, key, raw);
 }
 
 // Pure helper: filter a protocol's sealed chunks down to those overlapping
