@@ -24,6 +24,9 @@
     "viem": "^2.21.0",
     "zod": "^3.23.8"
   },
+  "optionalDependencies": {
+    "@google-cloud/storage": "^7.7.0"
+  },
   "devDependencies": {
     "@types/node": "^20.16.5",
     "tsx": "^4.19.1",

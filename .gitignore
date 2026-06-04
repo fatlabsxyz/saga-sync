@@ -13,3 +13,16 @@ STORAGE_REFACTOR_PLAN.md
 CLIENT_LIBRARY_PLAN.md
 SHA256_MIGRATION_PLAN.md
 CLIENT_CLI_PLAN.md
+PRIVACY_POOLS_MEASUREMENT_PLAN.md
+
+# Local secret — Alchemy RPC URL (never commit)
+.rpc.env
+
+# Privacy Pools measurement scratch
+privacy-pools-config.json
+pp-chunks/
+pp-cache/
+measurements/
+
+# Orchestrator lockfiles (publish.sh)
+.locks/

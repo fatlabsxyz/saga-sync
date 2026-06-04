@@ -16,7 +16,7 @@ import type { PublicClient } from "viem";
 import { finalizedBlock, assertChainId } from "../scraper/cli.js";
 import { loadAllProtocols } from "../scraper/config.js";
 import type { ScraperTarget } from "../scraper/config.js";
-import { createStore } from "../storage/index.js";
+import { createStore, parseStoreTarget } from "../storage/index.js";
 import { Manifest } from "../chunk-builder/manifest.js";
 import type { ChunkMeta } from "../chunk-builder/manifest.js";
 import { ChunkArchive } from "../chunk-builder/archive.js";
@@ -91,7 +91,7 @@ function parseCliArgs() {
   return {
     configPath: resolve(need("config")),
     rpc: need("rpc"),
-    outputDir: resolve(need("output-dir")),
+    output: need("output-dir"), // raw — may be a local dir or a gs:// target
     lockDir: values["lock-dir"] ? resolve(values["lock-dir"]) : undefined,
     protocolId: values["protocol-id"],
     batchSize,
@@ -275,7 +275,12 @@ async function processProtocol(args: {
 
 async function main(): Promise<void> {
   const args = parseCliArgs();
-  const lockDir = args.lockDir ?? args.outputDir;
+  const storeConfig = parseStoreTarget(args.output);
+  // The lockfile is filesystem-only. For a local output dir it lives there; for a
+  // gs:// target there is no local dir, so default to the cwd (override with
+  // --lock-dir). (On Cloud Run, single-execution scheduling is the real guard.)
+  const lockDir =
+    args.lockDir ?? (storeConfig.protocol === "disk" ? storeConfig.baseDir! : resolve("."));
 
   // Dry-run is read-only: don't create dirs or hold the lock.
   if (!args.dryRun) {
@@ -290,7 +295,7 @@ async function main(): Promise<void> {
   }
 
   const protocols = loadAllProtocols(args.configPath);
-  const store = createStore({ protocol: "disk", baseDir: args.outputDir, dryRun: args.dryRun });
+  const store = createStore({ ...storeConfig, dryRun: args.dryRun });
   const archive = new ChunkArchive(store);
   const manifest = await Manifest.load(store);
 

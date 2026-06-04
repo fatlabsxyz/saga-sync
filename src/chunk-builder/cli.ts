@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { numberToHex } from "viem";
 import type { CanonicalEvent } from "../scraper/normalize.js";
-import { createStore } from "../storage/index.js";
+import { createStore, parseStoreTarget } from "../storage/index.js";
 import { ChunkArchive } from "./archive.js";
 import { ChunkAccumulator } from "./accumulator.js";
 import type { CompletedChunk } from "./accumulator.js";
@@ -76,7 +75,7 @@ function parseCliArgs() {
     protocolId: need("protocol-id"),
     fromBlock,
     toBlock,
-    outputDir: resolve(need("output-dir")),
+    output: need("output-dir"), // raw — may be a local dir or a gs:// target
     sizeLimit,
     dryRun: values["dry-run"] ?? false,
   };
@@ -179,7 +178,7 @@ export async function processStream(
 
 async function main(): Promise<void> {
   const args = parseCliArgs();
-  const store = createStore({ protocol: "disk", baseDir: args.outputDir, dryRun: args.dryRun });
+  const store = createStore({ ...parseStoreTarget(args.output), dryRun: args.dryRun });
   const archive = new ChunkArchive(store);
   const manifest = await Manifest.load(store);
 

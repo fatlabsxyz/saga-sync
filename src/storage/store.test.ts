@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { DiskStore } from "./disk-store.js";
 import { DryRunStore } from "./dry-run-store.js";
 import { HttpStore } from "./http-store.js";
-import { createStore } from "./index.js";
+import { GcsStore } from "./gcs-store.js";
+import { createStore, parseStoreTarget } from "./index.js";
 
 describe("DiskStore", () => {
   let dir: string;
@@ -114,5 +115,41 @@ describe("createStore", () => {
 
   it("throws when http store has no baseUrl", () => {
     expect(() => createStore({ protocol: "http" })).toThrow(/baseUrl/);
+  });
+
+  it("builds a GcsStore for protocol 'gcs' from settings.bucket", () => {
+    expect(createStore({ protocol: "gcs", settings: { bucket: "my-bucket" } })).toBeInstanceOf(
+      GcsStore,
+    );
+  });
+
+  it("throws when gcs store has no bucket", () => {
+    expect(() => createStore({ protocol: "gcs" })).toThrow(/bucket/);
+  });
+});
+
+describe("parseStoreTarget", () => {
+  it("parses a gs:// target into a gcs config with bucket + prefix", () => {
+    expect(parseStoreTarget("gs://my-bucket/v1/data")).toEqual({
+      protocol: "gcs",
+      settings: { bucket: "my-bucket", prefix: "v1/data" },
+    });
+  });
+
+  it("parses a bucket-only gs:// target (no prefix)", () => {
+    expect(parseStoreTarget("gs://my-bucket")).toEqual({
+      protocol: "gcs",
+      settings: { bucket: "my-bucket", prefix: undefined },
+    });
+  });
+
+  it("treats a non-gs:// target as a resolved local disk path", () => {
+    const cfg = parseStoreTarget("./chunks");
+    expect(cfg.protocol).toBe("disk");
+    expect(cfg.baseDir).toBe(resolve("./chunks"));
+  });
+
+  it("rejects a gs:// target with no bucket", () => {
+    expect(() => parseStoreTarget("gs:///oops")).toThrow(/invalid gs:\/\//);
   });
 });
