@@ -61,6 +61,6 @@ describe("fetch", () => {
     const meta = await archive.seal("p", events, { from: 1n, to: 2n });
     const realBytes = await store.get(meta.file);
     const wrongMeta = { ...meta, digest: { type: "sha256" as const, data: "0xbeef" as const } };
-    expect(() => decodeAndVerify(realBytes!, wrongMeta)).toThrow(DigestMismatchError);
+    await expect(decodeAndVerify(realBytes!, wrongMeta)).rejects.toThrow(DigestMismatchError);
   });
 });

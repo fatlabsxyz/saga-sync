@@ -11,8 +11,8 @@ export type SaveOptions = {
   resumable?: boolean;
 };
 export interface GcsFile {
-  save(data: Buffer, opts: SaveOptions): Promise<void>;
-  download(): Promise<[Buffer]>;
+  save(data: Uint8Array, opts: SaveOptions): Promise<void>;
+  download(): Promise<[Uint8Array]>;
   delete(opts: { ignoreNotFound: boolean }): Promise<unknown>;
 }
 export interface GcsBucket {
@@ -88,7 +88,7 @@ export class GcsStore implements Store {
     return this.prefix + key;
   }
 
-  async put(key: string, data: Buffer): Promise<void> {
+  async put(key: string, data: Uint8Array): Promise<void> {
     const file = (await this.bucket()).file(this.obj(key));
     await file.save(data, {
       contentType: contentTypeFor(key),
@@ -97,7 +97,7 @@ export class GcsStore implements Store {
     });
   }
 
-  async get(key: string): Promise<Buffer | null> {
+  async get(key: string): Promise<Uint8Array | null> {
     const file = (await this.bucket()).file(this.obj(key));
     try {
       const [buf] = await file.download();

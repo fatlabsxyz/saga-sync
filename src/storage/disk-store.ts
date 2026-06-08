@@ -13,7 +13,7 @@ export class DiskStore implements Store {
     return join(this.baseDir, key);
   }
 
-  async put(key: string, data: Buffer): Promise<void> {
+  async put(key: string, data: Uint8Array): Promise<void> {
     const finalPath = this.path(key);
     await mkdir(dirname(finalPath), { recursive: true });
     const tmpPath = `${finalPath}.${process.pid}.tmp`;
@@ -21,7 +21,7 @@ export class DiskStore implements Store {
     await rename(tmpPath, finalPath);
   }
 
-  async get(key: string): Promise<Buffer | null> {
+  async get(key: string): Promise<Uint8Array | null> {
     try {
       return await readFile(this.path(key));
     } catch (err) {

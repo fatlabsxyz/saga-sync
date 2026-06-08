@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DiskStore } from "../storage/disk-store.js";
 import { Manifest } from "./manifest.js";
 import type { ChunkMeta } from "./manifest.js";
+import { generateKeyPair, signManifest, verifyManifestSignature } from "../signing.js";
 
 const meta = (overrides: Partial<ChunkMeta> = {}): ChunkMeta => ({
   fromBlock: "0xc50101",
@@ -163,6 +164,44 @@ describe("Manifest", () => {
       expect(m.gaps("proto")).toEqual([]);
       await m.appendChunk("proto", meta());
       expect(m.gaps("proto")).toEqual([]);
+    });
+  });
+
+  describe("signing", () => {
+    it("writes index.json.sig with a valid signature when a signer is set", async () => {
+      const { secretKey, publicKey } = generateKeyPair();
+      const m = await Manifest.load(store, undefined, {
+        signer: (bytes) => signManifest(bytes, secretKey),
+      });
+      await m.appendChunk("proto", meta());
+
+      const manifestBytes = await store.get("index.json");
+      const sig = await store.get("index.json.sig");
+      expect(manifestBytes).not.toBeNull();
+      expect(sig).not.toBeNull();
+      expect(() =>
+        verifyManifestSignature(manifestBytes!, sig!.toString("utf8").trim(), publicKey),
+      ).not.toThrow();
+    });
+
+    it("does not write a signature when no signer is set", async () => {
+      const m = await Manifest.load(store);
+      await m.appendChunk("proto", meta());
+      expect(await store.get("index.json.sig")).toBeNull();
+    });
+
+    it("re-signs on every persist (signature tracks the current manifest)", async () => {
+      const { secretKey, publicKey } = generateKeyPair();
+      const m = await Manifest.load(store, undefined, {
+        signer: (bytes) => signManifest(bytes, secretKey),
+      });
+      await m.appendChunk("proto", meta({ toBlock: "0x10" }));
+      await m.appendChunk("proto", meta({ toBlock: "0x20" }));
+      const manifestBytes = await store.get("index.json");
+      const sig = await store.get("index.json.sig");
+      expect(() =>
+        verifyManifestSignature(manifestBytes!, sig!.toString("utf8").trim(), publicKey),
+      ).not.toThrow();
     });
   });
 });

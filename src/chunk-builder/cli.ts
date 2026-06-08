@@ -10,6 +10,7 @@ import { ChunkArchive } from "./archive.js";
 import { ChunkAccumulator } from "./accumulator.js";
 import type { CompletedChunk } from "./accumulator.js";
 import { Manifest } from "./manifest.js";
+import { signerFromEnv } from "../signing.js";
 import type { ChunkMeta } from "./manifest.js";
 
 const DEFAULT_SIZE_LIMIT = 10 * 1024 * 1024; // 10 MiB
@@ -180,7 +181,7 @@ async function main(): Promise<void> {
   const args = parseCliArgs();
   const store = createStore({ ...parseStoreTarget(args.output), dryRun: args.dryRun });
   const archive = new ChunkArchive(store);
-  const manifest = await Manifest.load(store);
+  const manifest = await Manifest.load(store, undefined, { signer: signerFromEnv() });
 
   const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
   const { sealed } = await processStream(rl, {

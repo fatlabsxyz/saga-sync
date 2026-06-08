@@ -19,18 +19,17 @@ export class HttpStore implements Store {
     return this.baseUrl + encodeURIComponent(key);
   }
 
-  async get(key: string): Promise<Buffer | null> {
+  async get(key: string): Promise<Uint8Array | null> {
     const url = this.url(key);
     const response = await fetch(url);
     if (response.status === 404) return null;
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} fetching ${url}`);
     }
-    const buf = await response.arrayBuffer();
-    return Buffer.from(buf);
+    return new Uint8Array(await response.arrayBuffer());
   }
 
-  async put(_key: string, _data: Buffer): Promise<void> {
+  async put(_key: string, _data: Uint8Array): Promise<void> {
     throw new Error("HttpStore is read-only: put is not supported");
   }
 

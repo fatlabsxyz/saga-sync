@@ -1,5 +1,6 @@
 import type { Hex } from "viem";
 import type { Store } from "../storage/store.js";
+import type { ManifestSigner } from "../signing.js";
 
 // One entry in the manifest — describes a sealed chunk or a hot head. Produced
 // by ChunkArchive, stored by Manifest.
@@ -24,27 +25,44 @@ const MANIFEST_KEY = "index.json";
 // atomically through the Store on every mutation — so a crash leaves the
 // manifest consistent up to the last completed seal. Single-writer only
 // (the orchestrator's lockfile guarantees that).
+export type ManifestLoadOptions = {
+  // When set, persist() also writes a detached `${key}.sig` signature over the
+  // serialized manifest bytes on every write. Producer-side only.
+  signer?: ManifestSigner;
+};
+
 export class Manifest {
+  private signer?: ManifestSigner;
+
   private constructor(
     private readonly store: Store,
     private readonly key: string,
     private data: ManifestData,
   ) {}
 
-  static async load(store: Store, key: string = MANIFEST_KEY): Promise<Manifest> {
-    return Manifest.fromRaw(store, key, await store.get(key));
+  static async load(
+    store: Store,
+    key: string = MANIFEST_KEY,
+    opts: ManifestLoadOptions = {},
+  ): Promise<Manifest> {
+    return Manifest.fromRaw(store, key, await store.get(key), opts);
   }
 
   // Parse already-fetched manifest bytes into a Manifest, so a caller that has
   // (or must presence-check) the bytes does not fetch them a second time. A
   // `null` raw yields an empty manifest — the publisher's first-run case.
   // Consumers that require the manifest to exist null-check before calling.
-  static fromRaw(store: Store, key: string, raw: Buffer | null): Manifest {
+  static fromRaw(
+    store: Store,
+    key: string,
+    raw: Uint8Array | null,
+    opts: ManifestLoadOptions = {},
+  ): Manifest {
     let data: ManifestData = { availableStates: {} };
     if (raw) {
       let parsed: ManifestData;
       try {
-        parsed = JSON.parse(raw.toString("utf8")) as ManifestData;
+        parsed = JSON.parse(new TextDecoder().decode(raw)) as ManifestData;
       } catch (err) {
         throw new Error(`manifest ${key}: ${(err as Error).message}`);
       }
@@ -58,7 +76,9 @@ export class Manifest {
         data.hotHeads = parsed.hotHeads;
       }
     }
-    return new Manifest(store, key, data);
+    const manifest = new Manifest(store, key, data);
+    manifest.signer = opts.signer;
+    return manifest;
   }
 
   // --- pure reads (no I/O) ---
@@ -147,9 +167,14 @@ export class Manifest {
   }
 
   private async persist(): Promise<void> {
-    await this.store.put(
-      this.key,
-      Buffer.from(JSON.stringify(this.data, null, 2) + "\n", "utf8"),
-    );
+    const bytes = new TextEncoder().encode(JSON.stringify(this.data, null, 2) + "\n");
+    await this.store.put(this.key, bytes);
+    // Write the detached signature after the manifest so a reader that sees the
+    // new .sig is reading against the new manifest. (The two objects are not
+    // written atomically; a consumer that fetches a mismatched pair mid-publish
+    // fails verification and retries.)
+    if (this.signer) {
+      await this.store.put(`${this.key}.sig`, new TextEncoder().encode(this.signer(bytes) + "\n"));
+    }
   }
 }

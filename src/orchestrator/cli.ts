@@ -18,6 +18,7 @@ import { loadAllProtocols } from "../scraper/config.js";
 import type { ScraperTarget } from "../scraper/config.js";
 import { createStore, parseStoreTarget } from "../storage/index.js";
 import { Manifest } from "../chunk-builder/manifest.js";
+import { signerFromEnv } from "../signing.js";
 import type { ChunkMeta } from "../chunk-builder/manifest.js";
 import { ChunkArchive } from "../chunk-builder/archive.js";
 import { runProtocolOnce } from "./pipeline.js";
@@ -297,7 +298,7 @@ async function main(): Promise<void> {
   const protocols = loadAllProtocols(args.configPath);
   const store = createStore({ ...storeConfig, dryRun: args.dryRun });
   const archive = new ChunkArchive(store);
-  const manifest = await Manifest.load(store);
+  const manifest = await Manifest.load(store, undefined, { signer: signerFromEnv() });
 
   const client: PublicClient = createPublicClient({ transport: http(args.rpc) });
   const tip =

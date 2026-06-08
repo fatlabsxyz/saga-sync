@@ -18,7 +18,10 @@ export class Cursor {
     const raw = await store.get(key);
     if (!raw) return new Cursor(store, key, {});
     try {
-      const data = JSON.parse(raw.toString("utf8")) as Record<string, { lastScrapedBlock: Hex }>;
+      const data = JSON.parse(new TextDecoder().decode(raw)) as Record<
+        string,
+        { lastScrapedBlock: Hex }
+      >;
       return new Cursor(store, key, data);
     } catch (err) {
       // A corrupt cursor is a hard error — silently treating it as empty would

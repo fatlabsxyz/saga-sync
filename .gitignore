@@ -26,3 +26,6 @@ measurements/
 
 # Orchestrator lockfiles (publish.sh)
 .locks/
+
+MANIFEST_SIGNING_PLAN.md
+privacy-pools-all-config.json

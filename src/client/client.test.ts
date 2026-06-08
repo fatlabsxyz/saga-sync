@@ -6,6 +6,7 @@ import { ChunkArchive } from "../chunk-builder/archive.js";
 import { Manifest } from "../chunk-builder/manifest.js";
 import { Client } from "./client.js";
 import { DigestMismatchError } from "./verify.js";
+import { generateKeyPair, signManifest, ManifestSignatureError } from "../signing.js";
 
 // Instrumented in-memory store: records gets/puts and tracks peak concurrent
 // in-flight gets. `getDelayMs` holds gets open so overlap is observable.
@@ -58,9 +59,10 @@ async function publish(
   store: Store,
   sealedRanges: { from: bigint; to: bigint; events: CanonicalEvent[] }[],
   hot?: { from: bigint; to: bigint; events: CanonicalEvent[] },
+  signer?: (bytes: Uint8Array) => `0x${string}`,
 ): Promise<CanonicalEvent[]> {
   const archive = new ChunkArchive(store);
-  const manifest = await Manifest.load(store);
+  const manifest = await Manifest.load(store, undefined, { signer });
   const all: CanonicalEvent[] = [];
   for (const r of sealedRanges) {
     const meta = await archive.seal(PID, r.events, { from: r.from, to: r.to });
@@ -180,5 +182,49 @@ describe("Client", () => {
 
   it("rejects a non-positive concurrency", () => {
     expect(() => new Client({ source, concurrency: 0 })).toThrow(/concurrency/);
+  });
+
+  describe("manifest signature verification", () => {
+    const sign = (sk: string) => (bytes: Uint8Array) => signManifest(bytes, sk);
+
+    it("streams when the signature matches the configured public key", async () => {
+      const { secretKey, publicKey } = generateKeyPair();
+      const all = await publish(source, [{ from: 1n, to: 2n, events: [event(1n)] }], undefined, sign(secretKey));
+      const client = new Client({ source, publicKey });
+      expect(await collect(client.streamEvents(PID))).toEqual(all);
+    });
+
+    it("skips verification when no publicKey is configured (opt-in)", async () => {
+      // Signed manifest, but a client without a publicKey simply skips the check.
+      const { secretKey } = generateKeyPair();
+      await publish(source, [{ from: 1n, to: 2n, events: [event(1n)] }], undefined, sign(secretKey));
+      const client = new Client({ source }); // no publicKey
+      await expect(collect(client.streamEvents(PID))).resolves.toHaveLength(1);
+    });
+
+    it("rejects when the manifest was signed by a different key", async () => {
+      const signer = generateKeyPair();
+      const attackerSees = generateKeyPair();
+      await publish(source, [{ from: 1n, to: 2n, events: [event(1n)] }], undefined, sign(signer.secretKey));
+      const client = new Client({ source, publicKey: attackerSees.publicKey });
+      await expect(collect(client.streamEvents(PID))).rejects.toThrow(ManifestSignatureError);
+    });
+
+    it("rejects when a publicKey is set but the manifest is unsigned", async () => {
+      const { publicKey } = generateKeyPair();
+      await publish(source, [{ from: 1n, to: 2n, events: [event(1n)] }]); // no signer
+      const client = new Client({ source, publicKey });
+      await expect(client.fetchManifest()).rejects.toThrow(ManifestSignatureError);
+    });
+
+    it("rejects a tampered manifest body", async () => {
+      const { secretKey, publicKey } = generateKeyPair();
+      await publish(source, [{ from: 1n, to: 2n, events: [event(1n)] }], undefined, sign(secretKey));
+      // Tamper with index.json after signing; the signature no longer matches.
+      const tampered = Buffer.from((await source.get("index.json"))!.toString("utf8").replace("0x1", "0x9"));
+      await source.put("index.json", tampered);
+      const client = new Client({ source, publicKey });
+      await expect(client.fetchManifest()).rejects.toThrow(ManifestSignatureError);
+    });
   });
 });

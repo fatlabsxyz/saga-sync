@@ -1,4 +1,3 @@
-import { gunzipSync } from "node:zlib";
 import type { CanonicalEvent } from "../scraper/normalize.js";
 import type { Store } from "../storage/store.js";
 import type { ChunkMeta } from "../chunk-builder/manifest.js";
@@ -16,19 +15,31 @@ export class ChunkNotFoundError extends Error {
   }
 }
 
+// Gzip decompression via the web-standard DecompressionStream, so the consumer
+// read path runs in a browser as well as Node (both ship it). Async, unlike
+// node:zlib's gunzipSync — the only behavioral change of the browser refactor.
+async function gunzip(data: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+const utf8 = new TextDecoder();
+
 // Decode a chunk file's compressed bytes: gunzip → verify digest → parse JSONL.
 // Verification happens before parsing so a tampered chunk never reaches the
-// caller in any form. Mirrors ChunkArchive.readEvents on the producer side,
-// minus the I/O.
-export function decodeAndVerify(compressed: Buffer, meta: ChunkMeta): CanonicalEvent[] {
+// caller in any form. Async because gzip decompression is a streaming Web API.
+export async function decodeAndVerify(
+  compressed: Uint8Array,
+  meta: ChunkMeta,
+): Promise<CanonicalEvent[]> {
   // Defensive: a zero-byte file is not produced by the pipeline (an empty
-  // events list still gzips to ~20 bytes), but if encountered, hand an empty
-  // buffer to verify rather than letting gunzip throw.
-  const uncompressed = compressed.length === 0 ? Buffer.alloc(0) : gunzipSync(compressed);
+  // events list still gzips to ~20 bytes), but if encountered, hand empty
+  // bytes to verify rather than letting gunzip throw.
+  const uncompressed = compressed.length === 0 ? new Uint8Array(0) : await gunzip(compressed);
   verifyDigest(meta, uncompressed);
   if (uncompressed.length === 0) return [];
-  return uncompressed
-    .toString("utf8")
+  return utf8
+    .decode(uncompressed)
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as CanonicalEvent);

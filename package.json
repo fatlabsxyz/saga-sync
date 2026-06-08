@@ -6,6 +6,15 @@
   "engines": {
     "node": ">=20"
   },
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "bin": {
     "scraper": "dist/scraper/cli.js",
     "chunk-builder": "dist/chunk-builder/cli.js",
@@ -20,12 +29,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.2.0",
     "viem": "^2.21.0",
     "zod": "^3.23.8"
   },
   "optionalDependencies": {
-    "@google-cloud/storage": "^7.7.0"
+    "@google-cloud/storage": "^7.19.0"
   },
   "devDependencies": {
     "@types/node": "^20.16.5",

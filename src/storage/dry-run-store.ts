@@ -6,7 +6,7 @@ import type { Store } from "./store.js";
 export class DryRunStore implements Store {
   constructor(private readonly inner: Store) {}
 
-  async put(_key: string, _data: Buffer): Promise<void> {
+  async put(_key: string, _data: Uint8Array): Promise<void> {
     /* dry-run: discard writes */
   }
 
@@ -14,7 +14,7 @@ export class DryRunStore implements Store {
     /* dry-run: discard deletes */
   }
 
-  get(key: string): Promise<Buffer | null> {
+  get(key: string): Promise<Uint8Array | null> {
     return this.inner.get(key);
   }
 

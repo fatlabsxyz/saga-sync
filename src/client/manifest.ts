@@ -1,20 +1,40 @@
 import type { Store } from "../storage/store.js";
 import { Manifest as PublisherManifest } from "../chunk-builder/manifest.js";
 import type { ChunkMeta } from "../chunk-builder/manifest.js";
+import { ManifestSignatureError, verifyManifestSignature } from "../signing.js";
 
 // The client's view of a published manifest. Re-uses the publisher-side
 // `Manifest` class for parsing + validation so the shape is defined in exactly
 // one place; this file is the public re-export surface for consumers.
 export type { ChunkMeta, ManifestData } from "../chunk-builder/manifest.js";
 
+export type LoadManifestOptions = {
+  // When set, the manifest's detached Ed25519 signature (`${key}.sig`) is
+  // verified against this 0x-hex public key before the manifest is parsed.
+  // Mandatory once enabled: a missing or mismatched signature throws.
+  publicKey?: string;
+};
+
 // Load and parse the manifest from a store. Throws if the manifest is absent
-// (the publisher has not run yet, or the URL is wrong) or malformed.
+// (the publisher has not run yet, or the URL is wrong) or malformed. If a
+// publicKey is supplied, the signature is verified first — over the raw bytes,
+// before any of them are trusted.
 export async function loadManifest(
   store: Store,
   key: string = "index.json",
+  opts: LoadManifestOptions = {},
 ): Promise<PublisherManifest> {
   const raw = await store.get(key);
   if (!raw) throw new Error(`manifest not found at key "${key}"`);
+  if (opts.publicKey) {
+    const sig = await store.get(`${key}.sig`);
+    if (!sig) {
+      throw new ManifestSignatureError(
+        `manifest signature "${key}.sig" not found, but a public key was configured`,
+      );
+    }
+    verifyManifestSignature(raw, new TextDecoder().decode(sig).trim(), opts.publicKey);
+  }
   return PublisherManifest.fromRaw(store, key, raw);
 }
 

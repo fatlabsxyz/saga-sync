@@ -67,6 +67,8 @@ subprocesses.
 - **Node ≥ 20**, **TypeScript** (strict, ESM, `module: Node16`).
 - **Runtime dependencies** (3): `viem` (Ethereum RPC client), `zod` (config
   validation), `@noble/hashes` (sha256).
+- **Optional dependency**: `@google-cloud/storage`, used only by `GcsStore` and
+  lazy-loaded — disk/http runs and consumers never load it (see §4.1).
 - **Dev dependencies**: `typescript`, `@types/node`, `tsx`, `vitest`.
 - `package.json` scripts: `build` → `tsc`, `test` → `vitest run`,
   `typecheck` → `tsc --noEmit`, `dev` → `tsx`.
@@ -86,7 +88,8 @@ src/
     disk-store.ts     DiskStore: local FS, atomic write via temp-file + rename
     dry-run-store.ts  DryRunStore: decorator that no-ops writes, delegates reads
     http-store.ts     HttpStore: read-only fetch over a base URL (consumer side)
-    index.ts          createStore() factory + re-exports
+    gcs-store.ts      GcsStore: write to a GCS bucket (producer publish side)
+    index.ts          createStore() factory + parseStoreTarget() + re-exports
   hash.ts             sha256Hex() — the one place the digest algorithm is named
   scraper/
     config.ts         load + zod-validate the config; loadConfig / loadAllProtocols
@@ -144,10 +147,19 @@ interface Store {
   `${baseUrl}/${key}`, returning `null` on 404. `put`/`delete`/`list` throw (same
   throw-on-unsupported pattern `DryRunStore` uses for the inverse case). The
   consumer read-side; pairs with a CDN-fronted bucket.
-- **`createStore(cfg)`** — maps `cfg.protocol` (`disk` | `s3` | `http` | `ftp`)
-  to an implementation. `disk` and `http` exist; `s3` / `ftp` throw a clear error
-  until their classes are added. If `cfg.dryRun` is set, the result is wrapped in
-  `DryRunStore`.
+- **`GcsStore`** — producer write-side, backed by a Google Cloud Storage bucket
+  (optional `prefix`). GCS object writes are atomic + strongly consistent, so no
+  temp-file+rename is needed. Sets `Content-Type` and `Cache-Control` per key
+  (sealed chunks immutable + long-lived; `index.json` / hot head short TTL). The
+  `@google-cloud/storage` SDK is lazy-loaded behind an injectable provider, so the
+  module compiles + unit-tests without the dependency and no other path loads it.
+- **`createStore(cfg)`** — maps `cfg.protocol` (`disk` | `s3` | `http` | `ftp` |
+  `gcs`) to an implementation. `disk`, `http`, `gcs` exist; `s3` / `ftp` throw a
+  clear error until their classes are added. If `cfg.dryRun` is set, the result is
+  wrapped in `DryRunStore`.
+- **`parseStoreTarget(target)`** — resolves a producer `--output-dir`: a
+  `gs://bucket[/prefix]` target selects `GcsStore`, anything else is a local disk
+  path. Shared by the orchestrator and chunk-builder CLIs.
 
 ### 4.2 scraper/
 
@@ -579,16 +591,49 @@ node dist/client/cli.js stream http://localhost:8080/ tornado-cash-1-eth-0.1 \
 
 ---
 
-## 10. Scope boundaries
+## 10. Hosting on GCS
+
+Publishing to Google Cloud Storage is entirely a `Store`-seam concern — the
+scraper, chunk-builder logic, manifest/chunk format, and the client are all
+unchanged. The producer points `--output-dir` at a bucket; consumers read the
+same objects over plain HTTP.
+
+- **Producer write** — `--output-dir gs://bucket[/prefix]` routes through
+  `parseStoreTarget` → `GcsStore`. Chunks + `index.json` are written straight to
+  the bucket with per-object `Cache-Control`: sealed chunks
+  `max-age=31536000, immutable`, `index.json` / hot head `max-age=30`.
+- **Consumer read** — point the client's manifest URL at the bucket
+  (`https://storage.googleapis.com/<bucket>/`) or, later, a custom domain in front
+  of Cloud CDN. `HttpStore` does plain GETs; **nothing in the client changes**.
+- **Cloud CDN (optional)** — a backend bucket with `--enable-cdn
+  --cache-mode=USE_ORIGIN_HEADERS` honors the `Cache-Control` above, so immutable
+  chunks pin at the edge while the manifest re-validates. Needs an HTTPS load
+  balancer + custom domain; until then the bucket URL works directly.
+- **Running it** — `publish.sh` runs the orchestrator locally writing to
+  `gs://$BUCKET` (uses ADC for auth, keeps the lockfile on the local FS). The
+  natural next step is a **Cloud Run Job + Cloud Scheduler** with the RPC URL in
+  Secret Manager; only *where* the orchestrator runs changes, not what it does.
+
+Operational notes: the orchestrator lockfile is filesystem-only — for a `gs://`
+target it defaults to the cwd (`--lock-dir` to override), and in a stateless
+container single-execution scheduling is the real single-writer guard. Hot-head
+objects orphan as their range advances; a GCS Object Lifecycle rule (delete
+`*.hot.jsonl.gz` after N days) or a mirroring sync cleans them up. The bucket is
+public-read — integrity comes from the sha256 digests, not access control.
+
+---
+
+## 11. Scope boundaries
 
 Built and verified: scraper, chunk-builder, orchestrator, storage abstraction
-(`DiskStore` + `HttpStore`), hot heads, batching, and the client library + CLI.
+(`DiskStore` + `HttpStore` + `GcsStore`), hot heads, batching, and the client
+library + CLI.
 
 Not yet built (and where they slot in):
 
-- **`S3Store`** — the producer publish-side counterpart to `HttpStore`: one new
-  class implementing `put`/`get`/`delete`/`list`, plus one `case "s3"` in
-  `createStore`; no other module changes.
+- **`S3Store`** — an AWS publish-side store, mirroring `GcsStore`: one new class
+  implementing `put`/`get`/`delete`/`list`, plus one `case "s3"` in `createStore`
+  (and an `s3://` arm in `parseStoreTarget`); no other module changes.
 - **Browser build of the client** — today the client uses `node:zlib` and
   `Buffer`, so it runs under Node only. Going isomorphic means gzip via
   `DecompressionStream`, `Buffer` → `Uint8Array`, and swapping `sha256Hex` to

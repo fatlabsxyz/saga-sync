@@ -35,6 +35,7 @@ Options:
   --hot                  chunks: include the mutable hot head
   --cache-dir <path>     stream: local cache of verified sealed chunks
   --concurrency <n>      stream: parallel chunk fetches, default ${DEFAULT_CONCURRENCY}
+  --public-key <hex>     require + verify the manifest's Ed25519 signature
   --help                 show this message
 
 Exit codes: 0 ok · 1 usage/fetch/not-found · 3 head --since-block found nothing newer
@@ -199,11 +200,16 @@ export async function cmdChunks(
 async function runStream(
   manifestUrl: string,
   id: string,
-  opts: { cacheDir?: string; concurrency: number } & Range,
+  opts: { cacheDir?: string; concurrency: number; publicKey?: string } & Range,
 ): Promise<void> {
   const source = new HttpStore(manifestUrl);
   const cache = opts.cacheDir ? new DiskStore(opts.cacheDir) : undefined;
-  const client = new Client({ source, cache, concurrency: opts.concurrency });
+  const client = new Client({
+    source,
+    cache,
+    concurrency: opts.concurrency,
+    publicKey: opts.publicKey,
+  });
 
   let count = 0;
   for await (const event of client.streamEvents(id, {
@@ -238,6 +244,7 @@ async function main(): Promise<void> {
       "since-block": { type: "string" },
       hot: { type: "boolean", default: false },
       concurrency: { type: "string" },
+      "public-key": { type: "string" },
     },
   });
 
@@ -259,7 +266,9 @@ async function main(): Promise<void> {
     if (!id) fail(`missing <protocol-id> for "${command}"\n\n${USAGE}`);
     return id;
   };
-  const queryClient = (): Client => new Client({ source: new HttpStore(manifestUrl) });
+  const publicKey = values["public-key"];
+  const queryClient = (): Client =>
+    new Client({ source: new HttpStore(manifestUrl), publicKey });
 
   switch (command) {
     case "protocols":
@@ -290,6 +299,7 @@ async function main(): Promise<void> {
       await runStream(manifestUrl, needId(), {
         cacheDir: values["cache-dir"] ? resolve(values["cache-dir"]) : undefined,
         concurrency,
+        publicKey,
         ...range,
       });
       return;

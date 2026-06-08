@@ -21,7 +21,7 @@ export class DigestMismatchError extends Error {
 // Recompute the sha256 of the chunk's uncompressed JSONL bytes and compare to
 // the manifest entry. Mandatory on every fetched chunk (cache hits included) —
 // the whole point of the system is verifiable distribution.
-export function verifyDigest(meta: ChunkMeta, uncompressed: Buffer): void {
+export function verifyDigest(meta: ChunkMeta, uncompressed: Uint8Array): void {
   if (meta.digest.type !== "sha256") {
     throw new Error(`unsupported digest type ${meta.digest.type} for ${meta.file}`);
   }
