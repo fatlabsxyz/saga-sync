@@ -5,15 +5,8 @@ dist/
 # Local scraper state — not committed
 cursor.json
 
-# Local design plans — kept out of the repo
-PLAN.md
-CHUNK_BUILDER_PLAN.md
-HOT_HEAD_PLAN.md
-STORAGE_REFACTOR_PLAN.md
-CLIENT_LIBRARY_PLAN.md
-SHA256_MIGRATION_PLAN.md
-CLIENT_CLI_PLAN.md
-PRIVACY_POOLS_MEASUREMENT_PLAN.md
+# Local design plans — kept out of the repo (all plans live here now)
+plans/
 
 # Local secret — Alchemy RPC URL (never commit)
 .rpc.env
@@ -27,5 +20,6 @@ measurements/
 # Orchestrator lockfiles (publish.sh)
 .locks/
 
-MANIFEST_SIGNING_PLAN.md
 privacy-pools-all-config.json
+pp-all-chunks/
+tornado-cash-config.json
