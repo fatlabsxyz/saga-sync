@@ -47,9 +47,9 @@ A **producer** side (scrape → package → publish) and a **consumer** side
   config and runs `scrape → chunk` for each, **in-process**, in block-range
   **batches**. Owns the hot-head lifecycle.
 - **client** — the consumer. Reads the manifest, downloads a protocol's chunks +
-  hot head, **verifies every chunk's sha256** against the manifest, and yields
-  the merged `CanonicalEvent` stream to an application. Trusts the manifest URL,
-  verifies everything under it.
+  hot head, **verifies every chunk's sha256** against the manifest (and optionally
+  the manifest's **Ed25519 signature**), and yields the merged `CanonicalEvent`
+  stream to an application. A browser-safe library; verifies everything it serves.
 - **storage** — a `Store` interface abstracting all object persistence.
   `DiskStore` (producer writes, local read) and `HttpStore` (consumer read-side
   over a CDN) exist today; the seam exists so S3 buckets can be added without
@@ -65,8 +65,10 @@ subprocesses.
 ## 2. Tech stack
 
 - **Node ≥ 20**, **TypeScript** (strict, ESM, `module: Node16`).
-- **Runtime dependencies** (3): `viem` (Ethereum RPC client), `zod` (config
-  validation), `@noble/hashes` (sha256).
+- **Runtime dependencies** (4): `viem` (Ethereum RPC client), `zod` (config
+  validation), `@noble/hashes` (sha256), `@noble/curves` (Ed25519 manifest
+  signing). The two `@noble` libs are pure-JS and isomorphic, so the consumer
+  library is browser-safe (see §11).
 - **Optional dependency**: `@google-cloud/storage`, used only by `GcsStore` and
   lazy-loaded — disk/http runs and consumers never load it (see §4.1).
 - **Dev dependencies**: `typescript`, `@types/node`, `tsx`, `vitest`.
@@ -91,6 +93,9 @@ src/
     gcs-store.ts      GcsStore: write to a GCS bucket (producer publish side)
     index.ts          createStore() factory + parseStoreTarget() + re-exports
   hash.ts             sha256Hex() — the one place the digest algorithm is named
+  signing.ts          Ed25519 sign/verify of the manifest — the one place signing lives
+  keygen.ts           CLI: print an Ed25519 manifest-signing keypair
+  index.ts            browser-safe library entry (Client, HttpStore, verify helpers, types)
   scraper/
     config.ts         load + zod-validate the config; loadConfig / loadAllProtocols
     normalize.ts      raw RPC log → CanonicalEvent
@@ -106,18 +111,20 @@ src/
     pipeline.ts       runProtocolOnce — composes scrape + chunk-builder in-process
     cli.ts            orchestrator entry point; lockfile, batch loop, hot-head lifecycle
   client/
-    fetch.ts          decodeAndVerify + fetchChunkFrom — gunzip, verify, parse a chunk
+    fetch.ts          decodeAndVerify + fetchChunkFrom — DecompressionStream gunzip, verify, parse
     verify.ts         verifyDigest + DigestMismatchError — sha256 check against manifest
-    manifest.ts       loadManifest + selectSealedChunks/selectHotHead range helpers
+    manifest.ts       loadManifest (+ optional signature check) + range helpers
     client.ts         Client class — merged streamEvents over sealed chunks + hot head
     format.ts         humanBytes + table — CLI rendering helpers
     cli.ts            client entry point; protocols/info/head/chunks/stream subcommands
 ```
 
-Every module has a sibling `*.test.ts` (vitest). ~141 unit tests; both the
-producer pipeline and the client are also verified end-to-end against
+Every module has a sibling `*.test.ts` (vitest). ~171 unit tests; both the
+producer pipeline and the client are verified end-to-end against
 locally-published state served over HTTP (and the producer against a live
-mainnet RPC).
+mainnet RPC). The browser library entry (`src/index.ts`) additionally bundles
+clean with `esbuild --platform=browser` (no polyfills, no `node:` imports — there
+is a guard test for this).
 
 ---
 
@@ -208,7 +215,20 @@ Consumes `CanonicalEvent` NDJSON, produces chunk files + the manifest.
   memory; **every mutation persists atomically** (so a crash leaves the manifest
   consistent up to the last completed seal). Reads: `sealedChunks`, `hotHead`,
   `lastCoveredBlock`. Mutations: `appendChunk`, `setHotHead`, `clearHotHead`.
-  Also defines `ChunkMeta` — the per-chunk record.
+  Also defines `ChunkMeta` — the per-chunk record. If constructed with an optional
+  **`signer`**, `persist()` also writes a detached `index.json.sig` over the
+  serialized bytes on every write (manifest signing, below).
+- **`signing.ts`** (top-level) — manifest signing, the one place Ed25519 lives
+  (sibling of `hash.ts`). `signManifest(bytes, secret)` / `verifyManifestSignature`
+  over `@noble/curves`; `signerFromEnv()` builds a signer from the
+  `MANIFEST_SIGNING_KEY` env var (a 32-byte hex seed), which both producer CLIs
+  pass to `Manifest`. A **detached signature over the raw `index.json` bytes**
+  authenticates the publisher; because the manifest holds every chunk's digest,
+  one signature transitively authenticates the whole dataset. Opt-in on both ends:
+  the producer signs only when a key is set; the consumer verifies only when a
+  public key is supplied (§4.5). Public-key distribution is out-of-band today (a
+  pinned `--public-key`); an on-chain registry + key rotation are future work
+  (§11). `keygen.ts` mints a keypair.
 - **`cli.ts`** — `processStream(lines, args)` drives the accumulator: feed seed
   events (a prior hot head, optional) → feed stream events, sealing each
   completed chunk through `ChunkArchive` + `Manifest` → handle the trailing
@@ -240,12 +260,16 @@ with an optional local cache `Store`.
 - **`verify.ts`** — `verifyDigest(meta, bytes)` recomputes the sha256 of a
   chunk's uncompressed JSONL and compares it to the manifest entry. **Mandatory**
   on every chunk, cache hits included; mismatch throws `DigestMismatchError`.
-- **`fetch.ts`** — `decodeAndVerify` (gunzip → verify → JSONL parse) and
-  `fetchChunkFrom(store, meta)`. A missing file throws `ChunkNotFoundError`,
-  distinct from a digest mismatch so callers can tell "absent" from "tampered".
-- **`manifest.ts`** — `loadManifest(store)` (single fetch; throws if absent) plus
-  pure `selectSealedChunks` / `selectHotHead` range-overlap helpers. Re-uses the
-  producer-side `Manifest` class so the shape is defined once.
+- **`fetch.ts`** — `decodeAndVerify` (gunzip via the web-standard
+  `DecompressionStream` → verify → JSONL parse) and `fetchChunkFrom(store, meta)`.
+  A missing file throws `ChunkNotFoundError`, distinct from a digest mismatch so
+  callers can tell "absent" from "tampered".
+- **`manifest.ts`** — `loadManifest(store, key, { publicKey? })` (single fetch;
+  throws if absent) plus pure `selectSealedChunks` / `selectHotHead` range-overlap
+  helpers. When a `publicKey` is supplied it fetches `index.json.sig` and verifies
+  the **Ed25519 manifest signature over the raw bytes before parsing** — mandatory
+  once enabled (missing or mismatched signature throws). Re-uses the producer-side
+  `Manifest` class so the shape is defined once.
 - **`client.ts`** — the `Client` class. `streamEvents(protocolId, {from,to})`
   yields the merged `CanonicalEvent` stream in block order: sealed chunks (fetched
   with a bounded-concurrency sliding window, yielded in submission order) then the
@@ -456,6 +480,10 @@ The index. Written to the output directory:
 - `digest.data` — sha256 of the **uncompressed** JSONL; verify with
   `gunzip -c <file> | shasum -a 256`.
 - `size` — the **compressed** file's byte length, `0x`-hex.
+- **`index.json.sig`** (optional, sibling object) — when the producer is run with
+  a signing key, a detached `0x`-hex **Ed25519 signature over the exact
+  `index.json` bytes**, rewritten on every manifest write. Absent ⇒ unsigned
+  (still sha256-verifiable, just not publisher-authenticated).
 
 ### 7.7 STATE — `cursor.json` (standalone scraper only)
 
@@ -553,11 +581,19 @@ state-client <command> <manifest-url> [<protocol-id>] [options]
   --hot                  chunks: include the mutable hot head
   --cache-dir <path>     stream: local cache of verified sealed chunks
   --concurrency <n>      stream: parallel chunk fetches (default 4)
+  --public-key <hex>     require + verify the manifest's Ed25519 signature
 ```
 
 `stream` emits NDJSON on stdout + a summary on stderr; the query commands print a
-human table or, with `--json`, structured JSON. Exit codes: 0 ok · 1 usage /
-fetch / not-found · 3 `head --since-block` found nothing newer.
+human table or, with `--json`, structured JSON. `--public-key` applies to all
+commands and, when set, verifies `index.json.sig` before trusting the manifest.
+Exit codes: 0 ok · 1 usage / fetch / not-found · 3 `head --since-block` found
+nothing newer.
+
+> Producer signing is configured by the **`MANIFEST_SIGNING_KEY`** env var (a
+> 32-byte hex Ed25519 seed) on the orchestrator / chunk-builder; `node
+> dist/keygen.js` prints a fresh keypair. Set it before a run to publish a signed
+> `index.json.sig`; consumers pin the matching public key via `--public-key`.
 
 ---
 
@@ -566,7 +602,7 @@ fetch / not-found · 3 `head --since-block` found nothing newer.
 ```bash
 npm install
 npm run build
-npm test                       # ~141 unit tests
+npm test                       # ~171 unit tests
 
 # orchestrator — the normal path
 node dist/orchestrator/cli.js --config ./example-config.json \
@@ -626,20 +662,32 @@ public-read — integrity comes from the sha256 digests, not access control.
 ## 11. Scope boundaries
 
 Built and verified: scraper, chunk-builder, orchestrator, storage abstraction
-(`DiskStore` + `HttpStore` + `GcsStore`), hot heads, batching, and the client
-library + CLI.
+(`DiskStore` + `HttpStore` + `GcsStore`), hot heads, batching, the client library
++ CLI, **Ed25519 manifest signing**, and a **browser-safe consumer library**.
+
+**Browser-safe client (done).** The consumer library uses only web-standard APIs
+that also exist in Node 18+ — gzip via `DecompressionStream`, `Uint8Array` +
+`TextDecoder`/`TextEncoder` instead of `Buffer`, hex via `@noble`'s own utils — so
+`src/index.ts` bundles for the browser with no polyfills (a guard test asserts no
+`node:` imports in its graph). `@noble` stays (it is already isomorphic); native
+`crypto.subtle` was deemed unnecessary. The CLI, producer, and `DiskStore`/
+`GcsStore` remain Node-only by design.
+
+**Manifest signing (done, opt-in).** Detached Ed25519 over the raw `index.json`
+(§4.3 / §4.5 / §7.6). Producer signs when `MANIFEST_SIGNING_KEY` is set; consumer
+verifies when a `--public-key` is supplied.
 
 Not yet built (and where they slot in):
 
 - **`S3Store`** — an AWS publish-side store, mirroring `GcsStore`: one new class
   implementing `put`/`get`/`delete`/`list`, plus one `case "s3"` in `createStore`
   (and an `s3://` arm in `parseStoreTarget`); no other module changes.
-- **Browser build of the client** — today the client uses `node:zlib` and
-  `Buffer`, so it runs under Node only. Going isomorphic means gzip via
-  `DecompressionStream`, `Buffer` → `Uint8Array`, and swapping `sha256Hex` to
-  native `crypto.subtle` (which would drop `@noble/hashes` entirely).
-- **Manifest signing** — the broader spec anticipates signed manifests; the
-  client's verify path is where a signature check would extend. A publish-step
-  concern, separate from the orchestrator.
+- **Signing: key distribution + rotation** — signing itself is built, but the
+  public key is pinned out-of-band today. The anticipated on-chain key registry
+  and a rotation/revocation story are future work; the client's verify path is
+  where on-chain key resolution would slot in.
+- **Browser cache backend** — the client runs cache-less in a browser today
+  (`DiskStore` is Node-only); an `IndexedDbStore` implementing `Store` drops into
+  the existing `cache?: Store` seam.
 - **Per-protocol storage / multi-chain in one run** — today one `Store` and one
   chain per orchestrator invocation.
