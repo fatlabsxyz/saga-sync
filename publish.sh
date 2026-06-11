@@ -14,6 +14,15 @@
 # Usage:
 #   BUCKET=pp-state ./publish.sh [extra orchestrator flags...]
 #   BUCKET=pp-state/v1 CONFIG=./privacy-pools-config.json ./publish.sh --dry-run
+#
+# Signing (recommended): the orchestrator signs index.json → index.json.sig when
+# MANIFEST_SIGNING_KEY is set. Use a STABLE secret so the public key consumers pin
+# does not change between runs:
+#   MANIFEST_SIGNING_KEY=0x<ed25519-secret> BUCKET=pp-state ./publish.sh
+# Mint a throwaway key for a one-off publish (its public key is printed):
+#   GEN_KEY=1 BUCKET=pp-state ./publish.sh
+# Generate a stable keypair once with:  node dist/keygen.js
+#
 # The orchestrator always scans to the current finalized tip (no --to-block).
 set -uo pipefail
 cd "$(dirname "$0")"
@@ -53,6 +62,25 @@ import("@google-cloud/storage").then(async ({Storage}) => {
   || fail "cannot write to gs://$BUCKET — does the bucket exist and your account have objectAdmin?"
 log "preflight OK — build, @google-cloud/storage, ADC, and bucket write all verified"
 
+# ---- manifest signing (the orchestrator signs when MANIFEST_SIGNING_KEY is set) ----
+PUBLIC_KEY=""
+if [ -n "${MANIFEST_SIGNING_KEY:-}" ]; then
+  PUBLIC_KEY=$(node -e 'import("./dist/signing.js").then(m=>console.log(m.publicKeyFromSecret(process.argv[1]))).catch(e=>{console.error(e.message);process.exit(1)})' "$MANIFEST_SIGNING_KEY") \
+    || fail "MANIFEST_SIGNING_KEY is not a valid 0x-hex Ed25519 secret"
+  export MANIFEST_SIGNING_KEY
+  log "signing ENABLED — public key: $PUBLIC_KEY"
+elif [ "${GEN_KEY:-0}" = "1" ]; then
+  eval "$(node dist/keygen.js | grep -E '^(MANIFEST_SIGNING_KEY|PUBLIC_KEY)=')"
+  [ -n "${MANIFEST_SIGNING_KEY:-}" ] || fail "key generation failed"
+  export MANIFEST_SIGNING_KEY
+  log "signing ENABLED with a FRESH EPHEMERAL key — save the secret to reuse it next run:"
+  log "    MANIFEST_SIGNING_KEY=$MANIFEST_SIGNING_KEY"
+  log "  public key (consumers pin this): $PUBLIC_KEY"
+else
+  log "signing DISABLED — manifest will be unsigned."
+  log "  set MANIFEST_SIGNING_KEY=0x<ed25519-secret> (stable) or GEN_KEY=1 to sign."
+fi
+
 # ---- run, with a heartbeat so a silent multi-minute scrape still shows life ----
 log "starting orchestrator → gs://$BUCKET (scans to the finalized tip; the scrape can take minutes)"
 START=$(date +%s)
@@ -81,3 +109,7 @@ log "objects now under gs://$BUCKET:"
 gcloud storage ls -l "gs://$BUCKET/**" 2>/dev/null | sed 's/^/  /' >&2 \
   || log "  (could not list bucket — check gcloud)"
 log "done. consumers read: https://storage.googleapis.com/$BUCKET/index.json"
+if [ -n "$PUBLIC_KEY" ]; then
+  log "signed manifest — consumers verify with --public-key $PUBLIC_KEY, e.g.:"
+  log "  node dist/client/cli.js stream https://storage.googleapis.com/$BUCKET/ <protocolId> --public-key $PUBLIC_KEY"
+fi

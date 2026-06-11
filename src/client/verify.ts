@@ -1,5 +1,6 @@
 import { sha256Hex } from "../hash.js";
 import type { ChunkMeta } from "../chunk-builder/manifest.js";
+import type { CanonicalEvent } from "../scraper/normalize.js";
 
 // Thrown when a chunk's recomputed digest does not match the manifest. Carries
 // both digests so the caller can log them; both are lower-case 0x-prefixed.

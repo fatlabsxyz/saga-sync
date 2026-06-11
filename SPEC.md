@@ -121,6 +121,19 @@ Each line is self-describing (it carries its own `contractAddress`/`eventTopic`)
 
 **Note on hashes:** the format intentionally omits `transactionHash` and `blockHash` to minimize chunk size. These hashes are incompressible and add significant bloat. The reorg safety buffer (Section 6) ensures sealed chunks only contain finalized events, eliminating the need for block hash verification. They are also not recoverable from the chunk alone, but neither is needed for state reconstruction; protocol-specific validation (e.g., merkle tree reconstruction) provides integrity guarantees beyond what these hashes would offer.
 
+### 3.3 Canonical Form (Normalization)
+
+Chunks are content-addressed: a chunk's identity is the SHA-256 of its bytes (§7.2). For two scrapers to agree on a digest, the bytes must be produced deterministically. A conforming chunk MUST observe all of the following.
+
+1. **Field set and order.** Each event object contains exactly the six fields of §3.2, serialized in this order: `contractAddress`, `eventTopic`, `topics`, `data`, `blockNumber`, `logIndex`. No other keys. `eventTopic` MUST equal `topics[0]`.
+2. **Hex casing.** Every hex value is lowercase and `0x`-prefixed. Byte strings (`contractAddress` = 20 bytes, each `topics` entry = 32 bytes, `data` = arbitrary length) are emitted verbatim. The quantities `blockNumber` and `logIndex` are minimal hex — no leading zeros (e.g. `0x0`, `0x1a2b`).
+3. **JSON encoding.** Each event is encoded as compact JSON with no insignificant whitespace (no spaces after `:` or `,`), and `topics` is a JSON array in log order.
+4. **Line framing (JSONL).** One event per line, each line — including the last — terminated by a single `\n` (`U+000A`). An empty chunk (a scanned range with no matching events) is a **zero-byte** payload.
+5. **Ordering.** Events are globally sorted by `(blockNumber, logIndex)` ascending across the whole chunk — not grouped by contract or topic.
+6. **Digest.** The digest (§7.2) is computed over these **uncompressed** JSONL bytes. gzip is transport only and never enters the digest, so compression level/implementation may vary freely.
+
+Because every byte is pinned, identical inputs (the same logs from the chain) plus identical configuration (`fromBlock`, `chunkSettings`) yield byte-identical chunks and therefore identical digests. See §10 for what this enables.
+
 ## 4. Naming Conventions
 
 ### 4.1 Protocol Instance Key
@@ -310,7 +323,7 @@ Chunk digests are deterministic given identical inputs and configuration. Two sc
 
 1. They use the same RPC data source (or equivalent -- same events returned).
 2. They use the same scraper configuration (`fromBlock`, `chunkSettings`, `reorgSafetyBuffer`).
-3. They apply the canonical chunk serialization defined in §3.2: the fixed per-event field set **and order**, lowercase `0x`-hex values, events globally sorted by `(blockNumber, logIndex)` ascending, compact JSON, one event per line (JSONL), digest over the uncompressed bytes.
+3. They apply the canonical chunk form defined in §3.3 (fixed field set and order, lowercase minimal `0x`-hex, compact JSONL, global `(blockNumber, logIndex)` ordering, digest over the uncompressed bytes).
 
 All three are achievable in practice — the serialization is fully pinned (no sorted-keys/whitespace ambiguity), so identical inputs and configuration yield byte-identical chunks and digests.
 
