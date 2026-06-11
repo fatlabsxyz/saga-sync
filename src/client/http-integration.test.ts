@@ -20,8 +20,6 @@ const event = (block: bigint): CanonicalEvent => ({
   data: "0x",
   blockNumber: `0x${block.toString(16)}`,
   logIndex: "0x0",
-  transactionHash: "0xaa",
-  blockHash: "0xbb",
 });
 
 // Serves files out of `dir`, decoding the percent-encoded request path — the

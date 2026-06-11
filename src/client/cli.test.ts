@@ -30,8 +30,6 @@ const event = (block: bigint): CanonicalEvent => ({
   data: "0x",
   blockNumber: `0x${block.toString(16)}`,
   logIndex: "0x0",
-  transactionHash: "0xaa",
-  blockHash: "0xbb",
 });
 
 // Seal sealed chunks (+ optional hot head) for a protocol into the store.

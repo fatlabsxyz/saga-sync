@@ -27,7 +27,38 @@ describe("Manifest", () => {
 
   it("loads an empty manifest when index.json is absent", async () => {
     const m = await Manifest.load(store);
-    expect(m.snapshot()).toEqual({ availableStates: {} });
+    expect(m.snapshot()).toEqual({ version: 1, compression: "gzip", availableStates: {} });
+  });
+
+  it("stamps version, compression and a fresh updatedAt on persist", async () => {
+    const before = Date.now();
+    const m = await Manifest.load(store);
+    await m.appendChunk("proto", meta());
+    const reloaded = (await Manifest.load(store)).snapshot();
+    expect(reloaded.version).toBe(1);
+    expect(reloaded.compression).toBe("gzip");
+    expect(reloaded.updatedAt).toBeTypeOf("string");
+    expect(new Date(reloaded.updatedAt!).getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it("rejects a manifest declaring a newer version rather than misparsing it", async () => {
+    writeFileSync(
+      join(dir, "index.json"),
+      JSON.stringify({ version: 2, compression: "gzip", availableStates: {} }),
+      "utf8",
+    );
+    await expect(Manifest.load(store)).rejects.toThrow(/unsupported version 2/);
+  });
+
+  it("treats a version-less (legacy) manifest as v1", async () => {
+    writeFileSync(
+      join(dir, "index.json"),
+      JSON.stringify({ availableStates: { proto: [meta()] } }),
+      "utf8",
+    );
+    const m = await Manifest.load(store);
+    expect(m.version()).toBe(1);
+    expect(m.sealedChunks("proto")).toEqual([meta()]);
   });
 
   it("appendChunk persists and is readable on reload", async () => {

@@ -1,9 +1,13 @@
 import type { Hex, RpcLog } from "viem";
 
-// The full normalized log. `eventTopic` (= topics[0]) is kept as an explicit field
-// because the chunk builder groups by it; the full `topics` array is also kept so
-// each event is self-describing. Nothing is dropped here — any lossy projection is
-// the chunk builder's choice, not the scraper's.
+// The normalized log we persist. `eventTopic` (= topics[0]) is kept as an explicit
+// field because the chunk builder groups by it; the full `topics` array is also
+// kept so each event is self-describing (indexed args live in topics[1..]).
+//
+// `transactionHash`/`blockHash` are intentionally dropped: they are incompressible
+// bloat and unnecessary for state reconstruction. Settled chunks only contain
+// finalized events (reorg-safe by construction), so block-hash verification adds
+// nothing; protocol-specific validation provides any integrity beyond the digest.
 export type CanonicalEvent = {
   contractAddress: Hex;
   eventTopic: Hex;
@@ -11,8 +15,6 @@ export type CanonicalEvent = {
   data: Hex;
   blockNumber: Hex;
   logIndex: Hex;
-  transactionHash: Hex;
-  blockHash: Hex;
 };
 
 const lower = (hex: string): Hex => hex.toLowerCase() as Hex;
@@ -24,14 +26,9 @@ export function normalize(log: RpcLog): CanonicalEvent {
       `log without topics (tx ${log.transactionHash ?? "?"}, logIndex ${log.logIndex ?? "?"})`,
     );
   }
-  if (
-    log.blockNumber == null ||
-    log.blockHash == null ||
-    log.logIndex == null ||
-    log.transactionHash == null
-  ) {
+  if (log.blockNumber == null || log.logIndex == null) {
     throw new Error(
-      `log missing block/tx fields — pending logs are not scrapable (tx ${log.transactionHash ?? "?"})`,
+      `log missing block/index fields — pending logs are not scrapable (tx ${log.transactionHash ?? "?"})`,
     );
   }
   return {
@@ -41,7 +38,5 @@ export function normalize(log: RpcLog): CanonicalEvent {
     data: lower(log.data),
     blockNumber: lower(log.blockNumber),
     logIndex: lower(log.logIndex),
-    transactionHash: lower(log.transactionHash),
-    blockHash: lower(log.blockHash),
   };
 }

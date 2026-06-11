@@ -109,6 +109,8 @@ export async function cmdInfo(
     return JSON.stringify(
       {
         protocolId: id,
+        manifestVersion: manifest.version(),
+        updatedAt: manifest.updatedAt() ?? null,
         fromBlock: hexOrNull(first),
         lastCoveredBlock: hexOrNull(last),
         sealedChunks: sealed.length,
@@ -124,6 +126,7 @@ export async function cmdInfo(
   const ranged = opts.fromBlock !== undefined || opts.toBlock !== undefined;
   return [
     `protocol:        ${id}`,
+    `manifest:        v${manifest.version()}${manifest.updatedAt() ? `, updated ${manifest.updatedAt()}` : ""}`,
     `block range:     ${hexOrNull(first) ?? "-"} → ${hexOrNull(last) ?? "-"}`,
     `sealed chunks:   ${sealed.length}`,
     `hot head:        ${hot ? `${hot.fromBlock} → ${hot.toBlock} (${humanBytes(BigInt(hot.size))})` : "none"}`,

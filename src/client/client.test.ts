@@ -47,8 +47,6 @@ const event = (block: bigint, logIndex = 0): CanonicalEvent => ({
   data: "0x",
   blockNumber: `0x${block.toString(16)}`,
   logIndex: `0x${logIndex.toString(16)}`,
-  transactionHash: "0xaa",
-  blockHash: "0xbb",
 });
 
 const PID = "tornado-cash-1-eth-0.1";

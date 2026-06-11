@@ -14,12 +14,25 @@ export type ChunkMeta = {
 
 // The on-disk JSON shape. `availableStates` holds immutable sealed chunks;
 // `hotHeads` holds at most one mutable trailing entry per protocol.
+//
+// `version` lets a consumer reject a format it cannot parse (see
+// MANIFEST_VERSION). `updatedAt` is an ISO-8601 wall-clock stamp refreshed on
+// every write — a cheap "how fresh is this?" signal that needs no chunk reads.
+// `compression` declares the chunk codec; only "gzip" is produced today.
 export type ManifestData = {
+  version: number;
+  updatedAt?: string;
+  compression: "gzip";
   availableStates: Record<string, ChunkMeta[]>;
   hotHeads?: Record<string, ChunkMeta>;
 };
 
 const MANIFEST_KEY = "index.json";
+
+// The manifest format version this code writes, and the highest it can read. A
+// manifest declaring a higher version is rejected rather than misparsed — bump
+// this only alongside a backwards-incompatible layout change.
+export const MANIFEST_VERSION = 1;
 
 // The pipeline's index. Holds the parsed manifest in memory and persists
 // atomically through the Store on every mutation — so a crash leaves the
@@ -58,7 +71,11 @@ export class Manifest {
     raw: Uint8Array | null,
     opts: ManifestLoadOptions = {},
   ): Manifest {
-    let data: ManifestData = { availableStates: {} };
+    let data: ManifestData = {
+      version: MANIFEST_VERSION,
+      compression: "gzip",
+      availableStates: {},
+    };
     if (raw) {
       let parsed: ManifestData;
       try {
@@ -66,12 +83,23 @@ export class Manifest {
       } catch (err) {
         throw new Error(`manifest ${key}: ${(err as Error).message}`);
       }
+      // A version absent (legacy) is treated as v1; a version newer than we
+      // understand is a hard stop, not a best-effort parse.
+      const version = typeof parsed.version === "number" ? parsed.version : MANIFEST_VERSION;
+      if (version > MANIFEST_VERSION) {
+        throw new Error(
+          `manifest ${key}: unsupported version ${version} (this client supports up to ${MANIFEST_VERSION})`,
+        );
+      }
       data = {
+        version,
+        compression: "gzip",
         availableStates:
           parsed.availableStates && typeof parsed.availableStates === "object"
             ? parsed.availableStates
             : {},
       };
+      if (typeof parsed.updatedAt === "string") data.updatedAt = parsed.updatedAt;
       if (parsed.hotHeads && typeof parsed.hotHeads === "object") {
         data.hotHeads = parsed.hotHeads;
       }
@@ -138,6 +166,15 @@ export class Manifest {
     return holes;
   }
 
+  // Manifest-wide metadata (not per-protocol).
+  version(): number {
+    return this.data.version;
+  }
+
+  updatedAt(): string | undefined {
+    return this.data.updatedAt;
+  }
+
   // Raw snapshot — for inspection and tests.
   snapshot(): ManifestData {
     return this.data;
@@ -167,7 +204,19 @@ export class Manifest {
   }
 
   private async persist(): Promise<void> {
-    const bytes = new TextEncoder().encode(JSON.stringify(this.data, null, 2) + "\n");
+    // Stamp the writer's version + a fresh timestamp on every write, and emit a
+    // stable key order (metadata first) so the bytes are predictable.
+    this.data.version = MANIFEST_VERSION;
+    this.data.compression = "gzip";
+    this.data.updatedAt = new Date().toISOString();
+    const ordered = {
+      version: this.data.version,
+      updatedAt: this.data.updatedAt,
+      compression: this.data.compression,
+      availableStates: this.data.availableStates,
+      ...(this.data.hotHeads ? { hotHeads: this.data.hotHeads } : {}),
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(ordered, null, 2) + "\n");
     await this.store.put(this.key, bytes);
     // Write the detached signature after the manifest so a reader that sees the
     // new .sig is reading against the new manifest. (The two objects are not

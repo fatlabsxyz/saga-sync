@@ -175,14 +175,14 @@ Pure "input range → output events". Does not write chunks or the manifest.
 - **`config.ts`** — reads the config JSON, zod-validates **only** the fields the
   pipeline uses. `loadConfig(path, protocolId)` returns one `ScraperTarget`;
   `loadAllProtocols(path)` returns all of them. Validated: `chainId`,
-  `fromBlock`, `events[]`. Optional: `chunkSettings.maxSizeBytes`. Other config
-  keys (`cronString`, `storeSettings`, `chunkSettings.criteria`) pass through
-  unvalidated — reserved for operators / future use.
+  `fromBlock`, `events[]`. Optional: `chunkSettings.maxSizeBytes`. Store target
+  and schedule are deployment concerns, not config (see §7.1).
 - **`normalize.ts`** — `normalize(rpcLog)` → `CanonicalEvent`: lowercases every
   hex field, sets `eventTopic = topics[0]`, keeps the full `topics` array, and
-  rejects pending logs (null block fields). Nothing is dropped — indexed event
-  args (commitments, nullifiers) live in `topics[1..]`, so a lossy projection
-  here would make the distributed state unable to rebuild a protocol's tree.
+  rejects pending logs (null block fields). It keeps what state reconstruction
+  needs — indexed event args (commitments, nullifiers) live in `topics[1..]`, so
+  those are preserved — and drops only `transactionHash`/`blockHash`
+  (incompressible, and unneeded given the reorg-safe scrape boundary).
 - **`scrape.ts`** — `scrape(client, opts)` is an async generator yielding raw RPC
   logs. It slices `[fromBlock, toBlock]` into `window`-sized sub-ranges and, per
   sub-range, issues a raw `eth_getLogs` request per event filter. On a
@@ -367,12 +367,7 @@ client needs only a manifest URL, not the config. `example-config.json`:
     "tornado-cash-1-eth-0.1": {
       "chainId": "0x1",
       "fromBlock": "0x8b1d26",
-      "cronString": "*/5 * * * *",
       "chunkSettings": { "maxSizeBytes": 10485760 },
-      "storeSettings": {
-        "protocol": "disk",
-        "protocolSettings": {}
-      },
       "events": [
         {
           "contractAddress": "0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc",
@@ -398,7 +393,11 @@ Per-protocol fields:
 | `events[]` | yes | one entry per `(contractAddress, eventTopic)` to scrape |
 | `events[].filter` | no | extra indexed-topic matchers appended after `eventTopic` |
 | `chunkSettings.maxSizeBytes` | no | per-protocol chunk size cap (number or `0x`-hex); else the CLI `--size-limit` / 10 MiB default |
-| `cronString`, `storeSettings`, `chunkSettings.criteria` | no | reserved; not interpreted by the current implementation |
+
+The config is *what to scrape*, not *where/when*: the **store target** is a per-run
+CLI argument (`--output-dir <dir>` or a `gs://bucket/prefix`), shared by every
+protocol in the config under one manifest; the **schedule** is external (cron / a
+cloud scheduler).
 
 The protocol key `${protocol}-${chainId}-${protocolInstanceId}` is treated as an
 opaque id (chain identity comes from the explicit `chainId` field, since the key
@@ -415,13 +414,15 @@ The scraper writes one `CanonicalEvent` per line to **stdout** (a one-line
 summary goes to **stderr**). This is also the chunk-builder's **stdin**. One line:
 
 ```json
-{"contractAddress":"0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc","eventTopic":"0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196","topics":["0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196","0x1e8f9d67ec0cb430c1b25dbe840e8b1503feccc4864333a1e48f7d690ced303d"],"data":"0x0000000000000000000000000000000000000000000000000000000000003bc20000000000000000000000000000000000000000000000000000000061009c5b","blockNumber":"0xc501f5","logIndex":"0x68","transactionHash":"0x48b8b81d1895f8f639b79301983ebadf6097c80451fb01fecac2af4b1511b06c","blockHash":"0x46a48f87d78f96731c74609da20305129f6b9a1e9d456810981b6ea99048b6a7"}
+{"contractAddress":"0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc","eventTopic":"0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196","topics":["0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196","0x1e8f9d67ec0cb430c1b25dbe840e8b1503feccc4864333a1e48f7d690ced303d"],"data":"0x0000000000000000000000000000000000000000000000000000000000003bc20000000000000000000000000000000000000000000000000000000061009c5b","blockNumber":"0xc501f5","logIndex":"0x68"}
 ```
 
 `CanonicalEvent` fields (all lowercase `0x`-hex): `contractAddress`,
-`eventTopic` (= `topics[0]`), `topics[]`, `data`, `blockNumber`, `logIndex`,
-`transactionHash`, `blockHash`. Events are globally ordered by
-`(blockNumber, logIndex)`.
+`eventTopic` (= `topics[0]`), `topics[]`, `data`, `blockNumber`, `logIndex`.
+Events are globally ordered by `(blockNumber, logIndex)`. `transactionHash` and
+`blockHash` are intentionally **not** persisted — incompressible bloat,
+unnecessary for state reconstruction, and redundant given the reorg-safe
+(finalized) scrape boundary.
 
 ### 7.4 OUTPUT — chunk file `${protocolId}-[${fromBlock},${toBlock}).jsonl.gz`
 
@@ -429,8 +430,8 @@ Gzip-compressed. Decompressed, it is **JSONL** — exactly the NDJSON above, one
 `CanonicalEvent` per line, for the block range in the filename:
 
 ```
-{"contractAddress":"0x12d6…","eventTopic":"0xa945…","topics":[…],"data":"0x…","blockNumber":"0xc50101","logIndex":"0x0","transactionHash":"0x…","blockHash":"0x…"}
-{"contractAddress":"0x12d6…","eventTopic":"0xe9e5…","topics":[…],"data":"0x…","blockNumber":"0xc50187","logIndex":"0x2","transactionHash":"0x…","blockHash":"0x…"}
+{"contractAddress":"0x12d6…","eventTopic":"0xa945…","topics":[…],"data":"0x…","blockNumber":"0xc50101","logIndex":"0x0"}
+{"contractAddress":"0x12d6…","eventTopic":"0xe9e5…","topics":[…],"data":"0x…","blockNumber":"0xc50187","logIndex":"0x2"}
 ```
 
 Immutable once written. An empty chunk (a scanned range with no events) is a
@@ -448,6 +449,9 @@ The index. Written to the output directory:
 
 ```json
 {
+  "version": 1,
+  "updatedAt": "2026-06-11T14:00:00.000Z",
+  "compression": "gzip",
   "availableStates": {
     "tornado-cash-1-eth-0.1": [
       {
@@ -474,6 +478,11 @@ The index. Written to the output directory:
 }
 ```
 
+- `version` — manifest format version (`1`). A consumer rejects a higher version
+  rather than misparsing it (`MANIFEST_VERSION` in `manifest.ts`).
+- `updatedAt` — ISO-8601 stamp refreshed on every manifest write; a freshness
+  signal that needs no chunk reads.
+- `compression` — chunk codec; `"gzip"` today.
 - `availableStates[id]` — immutable sealed chunks, block-ordered. Cache forever.
 - `hotHeads[id]` — at most one mutable entry per protocol; absent if none.
   Re-fetch every poll; its `file` URL changes whenever the range advances.

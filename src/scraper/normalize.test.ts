@@ -31,12 +31,12 @@ describe("normalize", () => {
       "0xbbb0000000000000000000000000000000000000000000000000000000000002",
     ]);
     expect(e.data).toBe("0xdeadbeef");
-    expect(e.transactionHash).toBe(
-      "0xddd0000000000000000000000000000000000000000000000000000000000004",
-    );
-    expect(e.blockHash).toBe(
-      "0xccc0000000000000000000000000000000000000000000000000000000000003",
-    );
+  });
+
+  it("does not persist transactionHash or blockHash", () => {
+    const e = normalize(baseLog());
+    expect("transactionHash" in e).toBe(false);
+    expect("blockHash" in e).toBe(false);
   });
 
   it("keeps blockNumber and logIndex as 0x hex", () => {

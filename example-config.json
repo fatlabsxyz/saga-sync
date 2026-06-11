@@ -3,15 +3,8 @@
     "tornado-cash-1-eth-0.1": {
       "chainId": "0x1",
       "fromBlock": "0x8b1d26",
-      "cronString": "*/5 * * * *",
       "chunkSettings": {
-        "criteria": "block",
-        "criteriaSettings": "maxBlockRange"
-      },
-      "storeSettings": {
-        "fileNameTemplate": "tornado-cash-1-eth-0.1-[${fromBlock},${toBlock}).json",
-        "protocol": "disk",
-        "protocolSettings": {}
+        "maxSizeBytes": "0xa00000"
       },
       "events": [
         {

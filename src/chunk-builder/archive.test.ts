@@ -14,8 +14,6 @@ const event = (overrides: Partial<CanonicalEvent> = {}): CanonicalEvent => ({
   data: "0x",
   blockNumber: "0xc50101",
   logIndex: "0x0",
-  transactionHash: "0xaa",
-  blockHash: "0xbb",
   ...overrides,
 });
 

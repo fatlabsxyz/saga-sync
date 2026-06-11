@@ -9,8 +9,6 @@ const event = (block: bigint, logIndex = 0, padding = ""): CanonicalEvent => ({
   data: `0x${"00".repeat(padding.length)}` as `0x${string}`,
   blockNumber: `0x${block.toString(16)}` as `0x${string}`,
   logIndex: `0x${logIndex.toString(16)}` as `0x${string}`,
-  transactionHash: "0xaa",
-  blockHash: "0xbb",
 });
 
 describe("ChunkAccumulator", () => {

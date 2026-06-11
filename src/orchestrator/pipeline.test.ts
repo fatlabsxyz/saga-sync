@@ -142,8 +142,6 @@ describe("runProtocolOnce", () => {
       data: big as `0x${string}`,
       blockNumber: block as `0x${string}`,
       logIndex: "0x0",
-      transactionHash: "0xdd",
-      blockHash: "0xcc",
     });
     const result = await runProtocolOnce({
       client,
