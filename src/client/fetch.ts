@@ -1,7 +1,7 @@
 import type { CanonicalEvent } from "../scraper/normalize.js";
 import type { Store } from "../storage/store.js";
 import type { ChunkMeta } from "../chunk-builder/manifest.js";
-import { verifyDigest } from "./verify.js";
+import { verifyDigest, verifyChunkEvents } from "./verify.js";
 
 // Thrown when a chunk file referenced by the manifest is absent from the
 // store. Distinct from DigestMismatchError so callers can tell "missing"
@@ -25,9 +25,11 @@ async function gunzip(data: Uint8Array): Promise<Uint8Array> {
 
 const utf8 = new TextDecoder();
 
-// Decode a chunk file's compressed bytes: gunzip → verify digest → parse JSONL.
-// Verification happens before parsing so a tampered chunk never reaches the
-// caller in any form. Async because gzip decompression is a streaming Web API.
+// Decode a chunk file's compressed bytes: gunzip → verify digest → parse JSONL →
+// verify canonical form. Digest verification happens before parsing so a tampered
+// chunk never reaches the caller; the canonical-form check (range + ordering, SPEC
+// §3.3) then catches a correctly-digested chunk the producer built non-canonically.
+// Async because gzip decompression is a streaming Web API.
 export async function decodeAndVerify(
   compressed: Uint8Array,
   meta: ChunkMeta,
@@ -38,11 +40,13 @@ export async function decodeAndVerify(
   const uncompressed = compressed.length === 0 ? new Uint8Array(0) : await gunzip(compressed);
   verifyDigest(meta, uncompressed);
   if (uncompressed.length === 0) return [];
-  return utf8
+  const events = utf8
     .decode(uncompressed)
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as CanonicalEvent);
+  verifyChunkEvents(meta, events);
+  return events;
 }
 
 // Fetch a chunk from `store`, verify, return its events. Throws
