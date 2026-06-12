@@ -175,8 +175,8 @@ The client library is a thin layer responsible for downloading, validating, and 
    - Decompress if needed.
    - Compute SHA-256 digest over the uncompressed content.
    - Compare against the manifest's `digest` field. Reject on mismatch.
-   - Verify event ordering within the chunk: `(blockNumber, logIndex)` ascending per group.
-   - Verify `fromBlock`/`toBlock` consistency with the manifest.
+   - Verify event ordering within the chunk: strictly ascending by `(blockNumber, logIndex)`.
+   - Verify every event's `blockNumber` falls within the chunk's `[fromBlock, toBlock)` range from the manifest.
 6. **Hand validated event data to the application** for protocol-specific state reconstruction.
 
 ### 5.2 What the Client Does NOT Do

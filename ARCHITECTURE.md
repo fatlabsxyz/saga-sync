@@ -112,7 +112,7 @@ src/
     cli.ts            orchestrator entry point; lockfile, batch loop, hot-head lifecycle
   client/
     fetch.ts          decodeAndVerify + fetchChunkFrom — DecompressionStream gunzip, verify, parse
-    verify.ts         verifyDigest + DigestMismatchError — sha256 check against manifest
+    verify.ts         verifyDigest (sha256) + verifyChunkEvents (range + ordering) vs manifest
     manifest.ts       loadManifest (+ optional signature check) + range helpers
     client.ts         Client class — merged streamEvents over sealed chunks + hot head
     format.ts         humanBytes + table — CLI rendering helpers
@@ -258,10 +258,15 @@ beyond the manifest itself. Reads through the same `Store` seam (`HttpStore`),
 with an optional local cache `Store`.
 
 - **`verify.ts`** — `verifyDigest(meta, bytes)` recomputes the sha256 of a
-  chunk's uncompressed JSONL and compares it to the manifest entry. **Mandatory**
-  on every chunk, cache hits included; mismatch throws `DigestMismatchError`.
+  chunk's uncompressed JSONL and compares it to the manifest entry; mismatch
+  throws `DigestMismatchError`. `verifyChunkEvents(meta, events)` then enforces
+  the §3.3 canonical form the digest can't catch on its own — every event in the
+  chunk's `[fromBlock, toBlock)` range and strictly ascending by
+  `(blockNumber, logIndex)`; violations throw `CanonicalFormError`. Both are
+  **mandatory** on every chunk, cache hits included.
 - **`fetch.ts`** — `decodeAndVerify` (gunzip via the web-standard
-  `DecompressionStream` → verify → JSONL parse) and `fetchChunkFrom(store, meta)`.
+  `DecompressionStream` → verify digest → JSONL parse → verify canonical form)
+  and `fetchChunkFrom(store, meta)`.
   A missing file throws `ChunkNotFoundError`, distinct from a digest mismatch so
   callers can tell "absent" from "tampered".
 - **`manifest.ts`** — `loadManifest(store, key, { publicKey? })` (single fetch;
