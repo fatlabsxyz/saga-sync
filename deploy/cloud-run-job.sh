@@ -11,6 +11,7 @@ REGION="${REGION:-us-central1}"
 REPO="${REPO:-scraper}"                                  # Artifact Registry repo
 IMAGE="${IMAGE:-$REGION-docker.pkg.dev/$PROJECT/$REPO/scraper}"
 TAG="${TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo latest)}"
+BUILD="${BUILD:-cloud}"                                  # cloud | local | skip
 
 BUCKET="${BUCKET:?set BUCKET=your-state-bucket (output; e.g. pp-state)}"
 OUTPUT_URI="gs://$BUCKET"
@@ -41,13 +42,33 @@ gcloud artifacts repositories describe "$REPO" --project "$PROJECT" --location "
   || gcloud artifacts repositories create "$REPO" --project "$PROJECT" --location "$REGION" \
        --repository-format docker
 
-echo "==> build + push image ($IMAGE:$TAG)"
-gcloud builds submit --project "$PROJECT" --tag "$IMAGE:$TAG" .
+echo "==> build + push image ($IMAGE:$TAG) [BUILD=$BUILD]"
+case "$BUILD" in
+  cloud)  # build on Cloud Build (needs cloudbuild.builds.editor + the build SA's builder role)
+    gcloud builds submit --project "$PROJECT" --tag "$IMAGE:$TAG" . ;;
+  local)  # build + push with the local Docker daemon (needs only artifactregistry.writer).
+          # --platform linux/amd64: Cloud Run needs amd64 even on an arm64 Mac.
+          # --provenance=false: emit a plain image manifest, not an OCI index with
+          # attestations (Cloud Run rejects the index type).
+    gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+    docker build --platform linux/amd64 --provenance=false -t "$IMAGE:$TAG" .
+    docker push "$IMAGE:$TAG" ;;
+  skip)   # image already in Artifact Registry at this tag — just verify it's there
+    gcloud artifacts docker images describe "$IMAGE:$TAG" --project "$PROJECT" >/dev/null \
+      || { echo "  !! BUILD=skip but $IMAGE:$TAG not found in Artifact Registry"; exit 1; }
+    echo "  using existing image $IMAGE:$TAG" ;;
+  *) echo "  !! BUILD must be cloud|local|skip (got '$BUILD')"; exit 1 ;;
+esac
 
 echo "==> service account ($SA)"
 gcloud iam service-accounts describe "$SA" --project "$PROJECT" >/dev/null 2>&1 \
   || gcloud iam service-accounts create "$SA_NAME" --project "$PROJECT" \
        --display-name "Daily privacy-protocol scraper job"
+
+echo "==> output bucket (gs://$BUCKET)"
+gcloud storage buckets describe "gs://$BUCKET" --project "$PROJECT" >/dev/null 2>&1 \
+  || gcloud storage buckets create "gs://$BUCKET" --project "$PROJECT" \
+       --location "$REGION" --uniform-bucket-level-access
 
 echo "==> bucket access for the job SA (read config + write chunks)"
 gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" \
@@ -108,8 +129,11 @@ if [ -z "$ALERT_EMAIL" ]; then
   echo "  (skipped — set ALERT_EMAIL=you@example.com to wire a Cloud Monitoring email alert)"
 else
   CH_DISPLAY="scraper-daily alerts"
+  # grep '^projects/' guards against gcloud printing component-update / warning
+  # noise to stdout (e.g. on first alpha/beta use) being mistaken for a resource.
   CHANNEL=$(gcloud beta monitoring channels list --project "$PROJECT" \
-    --filter="type=email AND displayName=\"$CH_DISPLAY\"" --format="value(name)" | head -1)
+    --filter="type=email AND displayName=\"$CH_DISPLAY\"" --format="value(name)" 2>/dev/null \
+    | grep '^projects/' | head -1)
   if [ -z "$CHANNEL" ]; then
     CHANNEL=$(gcloud beta monitoring channels create --project "$PROJECT" \
       --type=email --display-name="$CH_DISPLAY" \
@@ -117,8 +141,10 @@ else
   fi
 
   POLICY_DISPLAY="$JOB job failed"
-  if [ -n "$(gcloud alpha monitoring policies list --project "$PROJECT" \
-        --filter="displayName=\"$POLICY_DISPLAY\"" --format="value(name)")" ]; then
+  EXISTING_POLICY=$(gcloud alpha monitoring policies list --project "$PROJECT" \
+    --filter="displayName=\"$POLICY_DISPLAY\"" --format="value(name)" 2>/dev/null \
+    | grep '^projects/' | head -1)
+  if [ -n "$EXISTING_POLICY" ]; then
     echo "  (policy '$POLICY_DISPLAY' already exists — leaving it)"
   else
     # Fire when a job execution finishes with result=failed. ALIGN_DELTA over a
