@@ -176,6 +176,46 @@ JSON
     gcloud alpha monitoring policies create --project "$PROJECT" --policy-from-file="$POLICY_FILE"
     rm -f "$POLICY_FILE"
   fi
+
+  # Absence-of-success: the failure alert above only fires when an execution
+  # *runs and exits non-zero*. It can't catch the job ceasing to run at all
+  # (Scheduler misfire, trigger/job deleted, IAM broken) — there's simply no
+  # failed-execution metric to threshold on. Alert when no *succeeded*
+  # execution lands within ~a day. A daily (24h) cadence rules out a plain
+  # conditionAbsence (its duration caps at 24h, so a late run false-pages);
+  # MQL absent_for has no such cap. 30h = one full day + slack for scheduler
+  # jitter, so a genuinely dead job pages by the next day while a late run
+  # doesn't. (Cold start: absent_for only tracks once the series has existed,
+  # i.e. after the first successful run — fine, that's when there's a baseline.)
+  ABSENCE_DISPLAY="$JOB no successful run"
+  EXISTING_ABSENCE=$(gcloud alpha monitoring policies list --project "$PROJECT" \
+    --filter="displayName=\"$ABSENCE_DISPLAY\"" --format="value(name)" 2>/dev/null \
+    | grep '^projects/' | head -1)
+  if [ -n "$EXISTING_ABSENCE" ]; then
+    echo "  (policy '$ABSENCE_DISPLAY' already exists — leaving it)"
+  else
+    ABSENCE_FILE="$(mktemp)"
+    cat > "$ABSENCE_FILE" <<JSON
+{
+  "displayName": "$ABSENCE_DISPLAY",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "No successful execution in 30h",
+      "conditionMonitoringQueryLanguage": {
+        "query": "fetch cloud_run_job | metric 'run.googleapis.com/job/completed_execution_count' | filter (resource.job_name == '$JOB') && (metric.result == 'succeeded') | align rate(1m) | absent_for 30h",
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "notificationChannels": ["$CHANNEL"],
+  "alertStrategy": { "autoClose": "604800s" }
+}
+JSON
+    gcloud alpha monitoring policies create --project "$PROJECT" --policy-from-file="$ABSENCE_FILE"
+    rm -f "$ABSENCE_FILE"
+  fi
 fi
 
 echo "==> done."

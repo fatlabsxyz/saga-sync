@@ -93,14 +93,25 @@ cache on public objects, so a fresh manifest is visible within ~30s. If you put
 ## Operability
 
 - **Logs** stream to Cloud Logging automatically (`gcloud run jobs executions list …`).
-- **Alert on failure** — the real silent failure is `lastCoveredBlock` ceasing to
-  advance. The deploy script wires a Cloud Monitoring alert on the Job's
-  `completed_execution_count{result="failed"}` metric when you pass an email:
+- **Alerts** — pass an email and the deploy script wires two Cloud Monitoring
+  policies (email notification channel + policies, all idempotent by display name):
   ```sh
   PROJECT=my-proj BUCKET=pp-state ALERT_EMAIL=you@example.com ./deploy/cloud-run-job.sh
   ```
-  It creates an email notification channel + alert policy (idempotent by display
-  name). Omit `ALERT_EMAIL` to skip. Uses `gcloud alpha/beta monitoring` — run
+  1. **`<job> job failed`** — fires on `completed_execution_count{result="failed"}`,
+     i.e. an execution ran and exited non-zero.
+  2. **`<job> no successful run`** — fires when no `result="succeeded"` execution
+     lands within 30h (MQL `absent_for`). Catches the case the failure alert
+     can't: the job ceasing to run at all (Scheduler misfire, trigger/job deleted,
+     broken IAM) — no failed-execution metric is ever emitted, so only absence of
+     *success* reveals it. 30h = the daily cadence + slack for scheduler jitter.
+
+  Still **not** alerted: the job succeeds (exit 0) but `lastCoveredBlock` doesn't
+  advance — a genuine silent stall. Covering that needs either a producer-side
+  freshness check that fails the run (folding into alert #1) or a custom
+  manifest-age metric + policy; deferred for now.
+
+  Omit `ALERT_EMAIL` to skip both. Uses `gcloud alpha/beta monitoring` — run
   `gcloud components install alpha beta` if those surfaces aren't installed.
 - **Manual / local runs** still go through `publish.sh` (which keeps its local
   `.locks/`); the Job and the local publisher write the same bucket safely because
