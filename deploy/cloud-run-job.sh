@@ -131,9 +131,12 @@ else
   CH_DISPLAY="scraper-daily alerts"
   # grep '^projects/' guards against gcloud printing component-update / warning
   # noise to stdout (e.g. on first alpha/beta use) being mistaken for a resource.
+  # NB: the enum value MUST be quoted — `type=email` (bare) matches nothing in
+  # gcloud's filter parser, so an unquoted guard never finds the existing channel
+  # and every run creates a duplicate. `type="email"` works.
   CHANNEL=$(gcloud beta monitoring channels list --project "$PROJECT" \
-    --filter="type=email AND displayName=\"$CH_DISPLAY\"" --format="value(name)" 2>/dev/null \
-    | grep '^projects/' | head -1)
+    --filter="type=\"email\" AND displayName=\"$CH_DISPLAY\"" --format="value(name)" 2>/dev/null \
+    | grep '^projects/' | head -1) || true   # no match => empty (set -e/pipefail safe)
   if [ -z "$CHANNEL" ]; then
     CHANNEL=$(gcloud beta monitoring channels create --project "$PROJECT" \
       --type=email --display-name="$CH_DISPLAY" \
@@ -143,7 +146,7 @@ else
   POLICY_DISPLAY="$JOB job failed"
   EXISTING_POLICY=$(gcloud alpha monitoring policies list --project "$PROJECT" \
     --filter="displayName=\"$POLICY_DISPLAY\"" --format="value(name)" 2>/dev/null \
-    | grep '^projects/' | head -1)
+    | grep '^projects/' | head -1) || true   # no match => empty (set -e/pipefail safe)
   if [ -n "$EXISTING_POLICY" ]; then
     echo "  (policy '$POLICY_DISPLAY' already exists — leaving it)"
   else
@@ -181,16 +184,16 @@ JSON
   # *runs and exits non-zero*. It can't catch the job ceasing to run at all
   # (Scheduler misfire, trigger/job deleted, IAM broken) — there's simply no
   # failed-execution metric to threshold on. Alert when no *succeeded*
-  # execution lands within ~a day. A daily (24h) cadence rules out a plain
-  # conditionAbsence (its duration caps at 24h, so a late run false-pages);
-  # MQL absent_for has no such cap. 30h = one full day + slack for scheduler
-  # jitter, so a genuinely dead job pages by the next day while a late run
-  # doesn't. (Cold start: absent_for only tracks once the series has existed,
-  # i.e. after the first successful run — fine, that's when there's a baseline.)
+  # execution lands within ~a day. Monitoring caps the absence window at 25h
+  # (1d1h) — both conditionAbsence and MQL absent_for; longer values are
+  # rejected (INVALID_ARGUMENT). 25h = the 24h daily cadence + 1h slack for
+  # scheduler jitter: a genuinely dead job pages by the next day while a
+  # slightly-late run doesn't. (Cold start: absent_for only tracks once the
+  # series has existed, i.e. after the first successful run — that's the baseline.)
   ABSENCE_DISPLAY="$JOB no successful run"
   EXISTING_ABSENCE=$(gcloud alpha monitoring policies list --project "$PROJECT" \
     --filter="displayName=\"$ABSENCE_DISPLAY\"" --format="value(name)" 2>/dev/null \
-    | grep '^projects/' | head -1)
+    | grep '^projects/' | head -1) || true   # no match => empty (set -e/pipefail safe)
   if [ -n "$EXISTING_ABSENCE" ]; then
     echo "  (policy '$ABSENCE_DISPLAY' already exists — leaving it)"
   else
@@ -201,9 +204,9 @@ JSON
   "combiner": "OR",
   "conditions": [
     {
-      "displayName": "No successful execution in 30h",
+      "displayName": "No successful execution in 25h",
       "conditionMonitoringQueryLanguage": {
-        "query": "fetch cloud_run_job | metric 'run.googleapis.com/job/completed_execution_count' | filter (resource.job_name == '$JOB') && (metric.result == 'succeeded') | align rate(1m) | absent_for 30h",
+        "query": "fetch cloud_run_job | metric 'run.googleapis.com/job/completed_execution_count' | filter (resource.job_name == '$JOB') && (metric.result == 'succeeded') | align rate(1m) | absent_for 25h",
         "duration": "0s",
         "trigger": { "count": 1 }
       }

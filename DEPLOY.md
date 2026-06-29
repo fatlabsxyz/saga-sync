@@ -101,10 +101,11 @@ cache on public objects, so a fresh manifest is visible within ~30s. If you put
   1. **`<job> job failed`** — fires on `completed_execution_count{result="failed"}`,
      i.e. an execution ran and exited non-zero.
   2. **`<job> no successful run`** — fires when no `result="succeeded"` execution
-     lands within 30h (MQL `absent_for`). Catches the case the failure alert
+     lands within 25h (MQL `absent_for`). Catches the case the failure alert
      can't: the job ceasing to run at all (Scheduler misfire, trigger/job deleted,
      broken IAM) — no failed-execution metric is ever emitted, so only absence of
-     *success* reveals it. 30h = the daily cadence + slack for scheduler jitter.
+     *success* reveals it. 25h = the 24h daily cadence + 1h slack for scheduler
+     jitter; it's also the ceiling — Monitoring rejects absence windows over 25h.
 
   Still **not** alerted: the job succeeds (exit 0) but `lastCoveredBlock` doesn't
   advance — a genuine silent stall. Covering that needs either a producer-side
