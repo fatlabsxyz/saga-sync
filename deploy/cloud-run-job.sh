@@ -33,7 +33,7 @@ CDN_BASE="${CDN_BASE%/}/"
 #     --project "$PROJECT" --replication-policy=automatic --data-file=-
 #   printf '%s' "0x<stable-ed25519-secret>" | gcloud secrets create scraper-signing-key \
 #     --project "$PROJECT" --replication-policy=automatic --data-file=-
-# Generate a stable signing key once with:  node dist/keygen.js
+# Generate a stable signing key once with:  node packages/producer/dist/keygen.js
 
 echo "==> enabling APIs"
 gcloud services enable --project "$PROJECT" \

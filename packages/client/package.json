@@ -1,0 +1,25 @@
+{
+  "name": "@saga-sync/client",
+  "version": "0.1.0",
+  "description": "Consumer library + CLI for saga-sync: fetch, verify, and stream published privacy-protocol state",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "state-client": "dist/cli.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@saga-sync/core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@saga-sync/producer": "^0.1.0"
+  }
+}

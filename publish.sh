@@ -22,7 +22,7 @@
 #   MANIFEST_SIGNING_KEY=0x<ed25519-secret> BUCKET=pp-state ./publish.sh
 # Mint a throwaway key for a one-off publish (its public key is printed):
 #   GEN_KEY=1 BUCKET=pp-state ./publish.sh
-# Generate a stable keypair once with:  node dist/keygen.js
+# Generate a stable keypair once with:  node packages/producer/dist/keygen.js
 #
 # The orchestrator always scans to the current finalized tip (no --to-block).
 set -uo pipefail
@@ -49,7 +49,7 @@ PREFIX="${BUCKET#"$BUCKET_NAME"}"; PREFIX="${PREFIX#/}"
 
 # ---- preflight: fail fast, before the multi-minute scrape ----
 log "preflight: checking build, package, credentials, bucket access…"
-[ -f dist/orchestrator/cli.js ] || fail "not built — run: npm run build"
+[ -f packages/producer/dist/orchestrator/cli.js ] || fail "not built — run: npm run build"
 [ -f "$CONFIG" ]                || fail "config not found: $CONFIG"
 node -e 'import("@google-cloud/storage").catch(()=>process.exit(1))' 2>/dev/null \
   || fail '@google-cloud/storage not installed — run: npm install @google-cloud/storage'
@@ -71,12 +71,12 @@ log "preflight OK — build, @google-cloud/storage, ADC, and bucket write all ve
 # ---- manifest signing (the orchestrator signs when MANIFEST_SIGNING_KEY is set) ----
 PUBLIC_KEY=""
 if [ -n "${MANIFEST_SIGNING_KEY:-}" ]; then
-  PUBLIC_KEY=$(node -e 'import("./dist/signing.js").then(m=>console.log(m.publicKeyFromSecret(process.argv[1]))).catch(e=>{console.error(e.message);process.exit(1)})' "$MANIFEST_SIGNING_KEY") \
+  PUBLIC_KEY=$(node -e 'import("@saga-sync/core").then(m=>console.log(m.publicKeyFromSecret(process.argv[1]))).catch(e=>{console.error(e.message);process.exit(1)})' "$MANIFEST_SIGNING_KEY") \
     || fail "MANIFEST_SIGNING_KEY is not a valid 0x-hex Ed25519 secret"
   export MANIFEST_SIGNING_KEY
   log "signing ENABLED — public key: $PUBLIC_KEY"
 elif [ "${GEN_KEY:-0}" = "1" ]; then
-  eval "$(node dist/keygen.js | grep -E '^(MANIFEST_SIGNING_KEY|PUBLIC_KEY)=')"
+  eval "$(node packages/producer/dist/keygen.js | grep -E '^(MANIFEST_SIGNING_KEY|PUBLIC_KEY)=')"
   [ -n "${MANIFEST_SIGNING_KEY:-}" ] || fail "key generation failed"
   export MANIFEST_SIGNING_KEY
   log "signing ENABLED with a FRESH EPHEMERAL key — save the secret to reuse it next run:"
@@ -90,7 +90,7 @@ fi
 # ---- run, with a heartbeat so a silent multi-minute scrape still shows life ----
 log "starting orchestrator → gs://$BUCKET (scans to the finalized tip; the scrape can take minutes)"
 START=$(date +%s)
-node dist/orchestrator/cli.js \
+node packages/producer/dist/orchestrator/cli.js \
   --config "$CONFIG" --rpc "$RPC" \
   --output-dir "gs://$BUCKET" \
   --lock-dir "$LOCK_DIR" \
@@ -117,5 +117,5 @@ gcloud storage ls -l "gs://$BUCKET/**" 2>/dev/null | sed 's/^/  /' >&2 \
 log "done. consumers read: ${CDN_BASE}index.json"
 if [ -n "$PUBLIC_KEY" ]; then
   log "signed manifest — consumers verify with --public-key $PUBLIC_KEY, e.g.:"
-  log "  node dist/client/cli.js stream $CDN_BASE <protocolId> --public-key $PUBLIC_KEY"
+  log "  node packages/client/dist/cli.js stream $CDN_BASE <protocolId> --public-key $PUBLIC_KEY"
 fi

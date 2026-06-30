@@ -28,7 +28,7 @@ fi
 echo "[entrypoint] orchestrator -> ${OUTPUT_URI} (scanning to finalized tip)"
 # No --lock-dir: on a gs:// target the lock harmlessly defaults to cwd; on Cloud
 # Run, single-execution scheduling is the real concurrency guard.
-exec node /app/dist/orchestrator/cli.js \
+exec node /app/packages/producer/dist/orchestrator/cli.js \
   --config "$CONFIG_LOCAL" \
   --rpc "$RPC" \
   --output-dir "$OUTPUT_URI" \
