@@ -1,0 +1,25 @@
+node_modules/
+dist/
+*.tmp
+
+# Local scraper state — not committed
+cursor.json
+
+# Local design plans — kept out of the repo (all plans live here now)
+plans/
+
+# Local secret — Alchemy RPC URL (never commit)
+.rpc.env
+
+# Privacy Pools measurement scratch
+privacy-pools-config.json
+pp-chunks/
+pp-cache/
+measurements/
+
+# Orchestrator lockfiles (publish.sh)
+.locks/
+
+privacy-pools-all-config.json
+pp-all-chunks/
+tornado-cash-config.json

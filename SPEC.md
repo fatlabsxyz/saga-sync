@@ -31,8 +31,8 @@ This specification defines a system for distributing pre-scraped protocol state 
 |------|-----------|
 | **Protocol instance** | A specific deployment of a privacy protocol, identified by the tuple `(protocol, chainId, instanceId)`. For example, Tornado Cash's 1 ETH pool on mainnet. |
 | **Chunk** | A file containing a contiguous range of events for a protocol instance. |
-| **Settled chunk** | A chunk covering blocks that are considered final. Immutable once written. |
-| **Hot chunk** | The most recent chunk for a protocol instance. Mutable -- it grows as new events are scraped and may be rewritten. At most one hot chunk exists per protocol instance at any time. |
+| **Sealed chunk** | A chunk covering blocks that are considered final. Immutable once written. |
+| **Hot head** | The most recent chunk for a protocol instance. Mutable -- it grows as new events are scraped and may be rewritten. At most one hot head exists per protocol instance at any time. |
 | **Manifest** | A JSON file (the index) listing all available chunks and their metadata. The single entry point for clients. |
 | **Reorg safety buffer** | A per-chain block count. The scraper only settles chunks for blocks at least this deep. |
 
@@ -47,97 +47,92 @@ The manifest is the entry point. A client fetches it to discover which chunks ar
 ```json
 {
     "version": 1,
-    "updatedAt": "2024-01-15T12:00:00Z",
+    "updatedAt": "2024-01-15T12:00:00.000Z",
     "compression": "gzip",
     "availableStates": {
+        "${protocol}-${chainId}-${instanceId}": [
+            {
+                "fromBlock": "0x0",
+                "toBlock": "0x100",
+                "file": "${protocol}-${chainId}-${instanceId}-[0x0,0x100).jsonl.gz",
+                "size": "0x4f2",
+                "digest": { "type": "sha256", "data": "0xabcdef..." }
+            }
+        ]
+    },
+    "hotHeads": {
         "${protocol}-${chainId}-${instanceId}": {
-            "startBlock": "0x0",
-            "updatedAtBlock": "0x...",
-            "chunks": [
-                {
-                    "fromBlock": "0x0",
-                    "toBlock": "0x100",
-                    "file": "${protocol}-${chainId}-${instanceId}-[0x0,0x100).json.gz",
-                    "size": "0x...",
-                    "settled": true,
-                    "digest": "sha256:abcdef..."
-                },
-                {
-                    "fromBlock": "0x100",
-                    "toBlock": "0x1a0",
-                    "file": "${protocol}-${chainId}-${instanceId}-[0x100,0x1a0).json.gz",
-                    "size": "0x...",
-                    "settled": false,
-                    "digest": "sha256:abcdef..."
-                }
-            ]
+            "fromBlock": "0x100",
+            "toBlock": "0x1a0",
+            "file": "${protocol}-${chainId}-${instanceId}-[0x100,0x1a0).hot.jsonl.gz",
+            "size": "0x2c1",
+            "digest": { "type": "sha256", "data": "0xabcdef..." }
         }
     }
 }
 ```
 
+A chunk's mutability is encoded by **which map it lives in** — `availableStates` (sealed) vs `hotHeads` (hot head) — not by a per-chunk flag. A consumer derives a protocol instance's first/last covered block from its chunk ranges rather than from stored per-instance fields.
+
 **Fields:**
 
 | Field | Description |
 |-------|-------------|
-| `version` | Integer. Manifest format version. Currently `1`. |
-| `updatedAt` | ISO 8601 timestamp of when this manifest was generated. |
-| `compression` | Compression algorithm applied to chunk files. `"gzip"` or `"none"`. |
-| `availableStates` | Map of protocol instance keys to their chunk lists. |
-| `startBlock` | The first block relevant to this protocol instance (protocol-defined, not necessarily block 0). |
-| `updatedAtBlock` | The chain block height up to which this protocol instance has been scraped. Per-instance because different instances may be on different chains or scrape schedules. |
-| `chunks` | Ordered array of chunk descriptors. MUST be sorted by `fromBlock` ascending. |
-| `chunks[].fromBlock` | First block in the chunk's range (inclusive). |
-| `chunks[].toBlock` | End of the chunk's range (exclusive). The chunk contains events from blocks `[fromBlock, toBlock)`. |
-| `chunks[].file` | Filename of the chunk, relative to the manifest's base URL. |
-| `chunks[].size` | Size in bytes of the chunk file as stored (after compression, if any). |
-| `chunks[].settled` | Boolean. `true` if this chunk is immutable. `false` for the hot chunk. |
-| `chunks[].digest` | Integrity digest of the **uncompressed** chunk content. Format: `algorithm:hex_digest`. |
+| `version` | Integer manifest format version (currently `1`). A client rejects a higher version rather than misparsing it. |
+| `updatedAt` | ISO 8601 timestamp, refreshed on every manifest write. |
+| `compression` | Compression codec applied to chunk files. `"gzip"` today. |
+| `availableStates` | Map of protocol instance key → ordered array of its **sealed** (immutable) chunk descriptors. |
+| `hotHeads` | Map of protocol instance key → its single **hot head** descriptor (the mutable trailing chunk). Optional; absent when no instance has an in-progress tail. |
+| `…[].fromBlock` | First block in the chunk's range (inclusive). |
+| `…[].toBlock` | End of the chunk's range (exclusive). The chunk contains events from blocks `[fromBlock, toBlock)`. |
+| `…[].file` | Filename of the chunk, relative to the manifest's base URL. |
+| `…[].size` | Size in bytes of the chunk file as **stored (compressed)**, `0x`-hex. |
+| `…[].digest` | Integrity digest of the **uncompressed** chunk content: `{ "type": "sha256", "data": "0x<hex>" }`. |
 
 **Invariants:**
 
-- There is at most one chunk with `settled: false` per protocol instance, and it MUST be the last entry.
-- Chunks MUST be contiguous: for consecutive chunks A and B, `A.toBlock == B.fromBlock`.
-- `chunks[0].fromBlock == startBlock`.
+- There is at most one hot head per protocol instance (`hotHeads[key]` is a single object, not an array).
+- Within `availableStates[key]`, sealed chunks are sorted by `fromBlock` ascending and are contiguous: for consecutive chunks A and B, `A.toBlock == B.fromBlock`.
+- The hot head continues the sealed chain: `hotHeads[key].fromBlock` equals the last sealed chunk's `toBlock` (or the instance's start block if nothing has sealed yet).
 
 ### 3.2 Chunk
 
-A chunk contains events for a single protocol instance over a contiguous block range. Settled and hot chunks share the same format.
+A chunk holds the events for a single protocol instance over a contiguous block range. Sealed chunks and hot heads share the same format. The file is **JSONL** (newline-delimited JSON) — one event object per line — gzip-compressed on disk. There is **no envelope object**: the instance key and block range live in the manifest and in the filename, not inside the chunk.
 
-```json
-{
-    "protocolInstance": "${protocol}-${chainId}-${instanceId}",
-    "fromBlock": "0x0",
-    "toBlock": "0x100",
-    "events": {
-        "${contractAddress}": {
-            "${eventTopic}": [
-                {
-                    "data": "0x...",
-                    "blockNumber": "0x1",
-                    "logIndex": "0x1"
-                }
-            ]
-        }
-    }
-}
+```
+{"contractAddress":"0x...","eventTopic":"0x...","topics":["0x...","0x..."],"data":"0x...","blockNumber":"0x1","logIndex":"0x1"}
+{"contractAddress":"0x...","eventTopic":"0x...","topics":["0x...","0x..."],"data":"0x...","blockNumber":"0x2","logIndex":"0x0"}
 ```
 
-**Fields:**
+**Per-event fields** (all lowercase `0x`-hex):
 
 | Field | Description |
 |-------|-------------|
-| `protocolInstance` | The protocol instance key this chunk belongs to. |
-| `fromBlock` | Same as in the manifest. |
-| `toBlock` | Same as in the manifest. |
-| `events` | Events grouped by contract address, then by event topic. |
-| `events[][].data` | The ABI-encoded event data (log `data` field). Opaque to the spec -- protocol-specific. |
-| `events[][].blockNumber` | Block in which the event was emitted. |
-| `events[][].logIndex` | Log index within the block. |
+| `contractAddress` | Emitting contract. |
+| `eventTopic` | The event signature topic (`= topics[0]`); chunks group/filter by it. |
+| `topics` | Full log `topics` array; indexed event args live in `topics[1..]`. |
+| `data` | ABI-encoded non-indexed event data (log `data` field). Opaque to the spec -- protocol-specific. |
+| `blockNumber` | Block in which the event was emitted. |
+| `logIndex` | Log index within the block. |
 
-**Ordering:** Within each `(contractAddress, eventTopic)` group, events MUST be sorted by `(blockNumber, logIndex)` ascending. This ordering is deterministic and affects the chunk digest -- a differently-ordered chunk with the same events will produce a different digest and fail validation.
+Each line is self-describing (it carries its own `contractAddress`/`eventTopic`) rather than being nested under grouping keys. An empty chunk — a scanned range with no matching events — is a zero-byte payload, which still asserts "this range was scanned."
 
-**Note on hashes:** The format intentionally omits `txHash` and `blockHash` to minimize chunk size. These hashes are incompressible and add significant bloat. The reorg safety buffer (Section 6) ensures settled chunks only contain finalized events, eliminating the need for block hash verification. Protocol-specific validation (e.g., merkle tree reconstruction) provides integrity guarantees beyond what tx hashes would offer.
+**Ordering:** events MUST be globally sorted by `(blockNumber, logIndex)` ascending. This ordering is deterministic and affects the chunk digest -- a differently-ordered chunk with the same events produces a different digest and fails validation.
+
+**Note on hashes:** the format intentionally omits `transactionHash` and `blockHash` to minimize chunk size. These hashes are incompressible and add significant bloat. The reorg safety buffer (Section 6) ensures sealed chunks only contain finalized events, eliminating the need for block hash verification. They are also not recoverable from the chunk alone, but neither is needed for state reconstruction; protocol-specific validation (e.g., merkle tree reconstruction) provides integrity guarantees beyond what these hashes would offer.
+
+### 3.3 Canonical Form (Normalization)
+
+Chunks are content-addressed: a chunk's identity is the SHA-256 of its bytes (§7.2). For two scrapers to agree on a digest, the bytes must be produced deterministically. A conforming chunk MUST observe all of the following.
+
+1. **Field set and order.** Each event object contains exactly the six fields of §3.2, serialized in this order: `contractAddress`, `eventTopic`, `topics`, `data`, `blockNumber`, `logIndex`. No other keys. `eventTopic` MUST equal `topics[0]`.
+2. **Hex casing.** Every hex value is lowercase and `0x`-prefixed. Byte strings (`contractAddress` = 20 bytes, each `topics` entry = 32 bytes, `data` = arbitrary length) are emitted verbatim. The quantities `blockNumber` and `logIndex` are minimal hex — no leading zeros (e.g. `0x0`, `0x1a2b`).
+3. **JSON encoding.** Each event is encoded as compact JSON with no insignificant whitespace (no spaces after `:` or `,`), and `topics` is a JSON array in log order.
+4. **Line framing (JSONL).** One event per line, each line — including the last — terminated by a single `\n` (`U+000A`). An empty chunk (a scanned range with no matching events) is a **zero-byte** payload.
+5. **Ordering.** Events are globally sorted by `(blockNumber, logIndex)` ascending across the whole chunk — not grouped by contract or topic.
+6. **Digest.** The digest (§7.2) is computed over these **uncompressed** JSONL bytes. gzip is transport only and never enters the digest, so compression level/implementation may vary freely.
+
+Because every byte is pinned, identical inputs (the same logs from the chain) plus identical configuration (`fromBlock`, `chunkSettings`) yield byte-identical chunks and therefore identical digests. See §10 for what this enables.
 
 ## 4. Naming Conventions
 
@@ -153,7 +148,7 @@ The key is an opaque string to this spec. Protocols define their own naming conv
 
 ### 4.2 Chunk Filename
 
-Format: `${protocolInstanceKey}-[${fromBlock},${toBlock}).json` (or `.json.gz` when compressed).
+Format: `${protocolInstanceKey}-[${fromBlock},${toBlock}).jsonl` (or `.jsonl.gz` when gzip-compressed; the hot head adds a `.hot` infix: `…).hot.jsonl.gz`).
 
 The half-open interval `[from, to)` is embedded in the filename for human readability and debuggability. The manifest is the authoritative source for block ranges, not the filename.
 
@@ -174,26 +169,26 @@ The client library is a thin layer responsible for downloading, validating, and 
 
 1. **Fetch the manifest** from the known base URL.
 2. **Diff against local state.** Compare locally stored chunks (by digest) against the manifest's chunk list. Determine which chunks need to be downloaded.
-3. **Download missing settled chunks.** These are immutable and can be cached indefinitely.
-4. **Download (or re-download) the hot chunk.** The hot chunk may have changed since the last sync. Always re-fetch it.
+3. **Download missing sealed chunks.** These are immutable and can be cached indefinitely.
+4. **Download (or re-download) the hot head.** The hot head may have changed since the last sync. Always re-fetch it.
 5. **Validate each downloaded chunk:**
    - Decompress if needed.
    - Compute SHA-256 digest over the uncompressed content.
    - Compare against the manifest's `digest` field. Reject on mismatch.
-   - Verify event ordering within the chunk: `(blockNumber, logIndex)` ascending per group.
-   - Verify `fromBlock`/`toBlock` consistency with the manifest.
+   - Verify event ordering within the chunk: strictly ascending by `(blockNumber, logIndex)`.
+   - Verify every event's `blockNumber` falls within the chunk's `[fromBlock, toBlock)` range from the manifest.
 6. **Hand validated event data to the application** for protocol-specific state reconstruction.
 
 ### 5.2 What the Client Does NOT Do
 
-- **Bridge the gap between the hot chunk and the current chain head.** The hot chunk's `toBlock` may lag behind the chain. Fetching recent events beyond the hot chunk is the application's responsibility (e.g., via direct RPC calls).
+- **Bridge the gap between the hot head and the current chain head.** The hot head's `toBlock` may lag behind the chain. Fetching recent events beyond the hot head is the application's responsibility (e.g., via direct RPC calls).
 - **Protocol-specific validation.** Merkle tree reconstruction, nullifier set building, etc. are application concerns. The client validates chunk integrity (digest, ordering), not semantic correctness.
-- **Partial sync from an arbitrary block.** Privacy protocol verification typically requires processing all events from `startBlock` to reconstruct state. A client MAY support resuming from a known-good state if the application provides one, but that is an application-level concern.
+- **Partial sync from an arbitrary block.** Privacy protocol verification typically requires processing all events from `fromBlock` to reconstruct state. A client MAY support resuming from a known-good state if the application provides one, but that is an application-level concern.
 
 ### 5.3 Caching
 
-- Settled chunks are immutable. Once validated, they SHOULD be cached and never re-downloaded (matched by digest).
-- The hot chunk MUST be re-fetched on every sync, since it may have grown or been rewritten.
+- Sealed chunks are immutable. Once validated, they SHOULD be cached and never re-downloaded (matched by digest).
+- The hot head MUST be re-fetched on every sync, since it may have grown or been rewritten.
 - The manifest MUST be re-fetched on every sync. Standard HTTP caching headers (`ETag`, `Last-Modified`, `Cache-Control`) SHOULD be used for efficient polling.
 
 ## 6. Scraper Behavior
@@ -206,7 +201,7 @@ The scraper is protocol-agnostic: it does not interpret event data. It stores th
 
 ### 6.2 Reorg Safety Buffer
 
-Each chain has a configured `reorgSafetyBuffer` -- a number of blocks. The scraper MUST NOT scrape events from blocks newer than `chainHead - reorgSafetyBuffer`. This means all data in both settled and hot chunks is behind the safety buffer, and no chunk ever needs to be rewritten due to a reorg.
+Each chain has a configured `reorgSafetyBuffer` -- a number of blocks. The scraper MUST NOT scrape events from blocks newer than `chainHead - reorgSafetyBuffer`. This means all data in both sealed and hot heads is behind the safety buffer, and no chunk ever needs to be rewritten due to a reorg.
 
 Recommended buffer values:
 
@@ -215,12 +210,12 @@ Recommended buffer values:
 | Ethereum L1 | 128 blocks (~26 min) | 2x Casper FFG finality epoch. Reorgs beyond 1-2 blocks are extremely rare post-Merge. |
 | Arbitrum / Optimism | 40 blocks | Sequencer-ordered; reorgs are near-impossible under normal operation. |
 
-Since the scraper applies the buffer at scrape time, the distinction between settled and hot chunks is purely about mutability (the hot chunk grows on subsequent scrapes), not about reorg risk.
+Since the scraper applies the buffer at scrape time, the distinction between sealed and hot heads is purely about mutability (the hot head grows on subsequent scrapes), not about reorg risk.
 
 ### 6.3 Chunk Lifecycle
 
-1. **Scrape** events up to `chainHead - reorgSafetyBuffer`. Append them to the hot chunk.
-2. When the hot chunk exceeds the configured threshold (max file size or max block range), **seal** it: the hot chunk becomes a settled chunk, and a new empty hot chunk begins.
+1. **Scrape** events up to `chainHead - reorgSafetyBuffer`. Append them to the hot head.
+2. When the hot head exceeds the configured threshold (max file size or max block range), **seal** it: the hot head becomes a sealed chunk, and a new empty hot head begins.
 3. **Upload** the new or updated chunk files.
 4. **Update** the manifest.
 
@@ -244,8 +239,8 @@ Chunk files SHOULD be compressed with gzip for storage and transfer efficiency. 
 
 | Value | Meaning |
 |-------|---------|
-| `"gzip"` | Chunks are gzip-compressed. File extension: `.json.gz`. |
-| `"none"` | Chunks are stored uncompressed. File extension: `.json`. |
+| `"gzip"` | Chunks are gzip-compressed. File extension: `.jsonl.gz`. |
+| `"none"` | Chunks are stored uncompressed. File extension: `.jsonl`. |
 
 Gzip is chosen for broad compatibility: native browser support (`DecompressionStream`), universal CDN support, and availability in every runtime.
 
@@ -258,32 +253,23 @@ Digests are computed over the **uncompressed** JSON content. This ensures that:
 - Different compression levels or implementations produce the same digest.
 - Clients can validate after decompression, regardless of transport.
 
-Format: `sha256:<hex_digest>` (lowercase hex, no `0x` prefix on the hash itself).
+Format: a `{ "type": "sha256", "data": "0x<hex>" }` object (lowercase `0x`-prefixed hex), so the digest algorithm is explicit and future algorithms slot in without a string-parsing convention.
 
 SHA-256 is chosen for universal support (Web Crypto API `SubtleCrypto.digest()`, Node.js `crypto`, every language's standard library) and sufficient collision resistance.
 
 ## 8. Scraper Configuration
+
+A config describes *what* to scrape and how to chunk it. *Where* chunks are published and *how often* the scraper runs are deployment concerns, supplied out-of-band (see below), not per protocol.
 
 ```json
 {
     "protocols": {
         "${protocol}-${chainId}-${instanceId}": {
             "chainId": "0x1",
-            "startBlock": "0x...",
+            "fromBlock": "0x...",
             "reorgSafetyBuffer": "0x80",
-            "cronString": "0 0 * * *",
             "chunkSettings": {
-                "criteria": "size",
                 "maxSizeBytes": "0x100000"
-            },
-            "storeSettings": {
-                "baseUrl": "https://cdn.example.com/state/",
-                "fileNameTemplate": "${protocol}-${chainId}-${instanceId}-[${fromBlock},${toBlock}).json.gz",
-                "backend": "s3",
-                "backendSettings": {
-                    "bucket": "state-chunks",
-                    "region": "us-east-1"
-                }
             },
             "events": [
                 {
@@ -302,47 +288,47 @@ SHA-256 is chosen for universal support (Web Crypto API `SubtleCrypto.digest()`,
 | Field | Description |
 |-------|-------------|
 | `chainId` | Chain ID for this protocol instance. |
-| `startBlock` | First block to scrape from. Protocol-defined. |
-| `reorgSafetyBuffer` | Number of blocks to stay behind the chain head when settling chunks. |
-| `cronString` | Scrape schedule in cron format. |
-| `chunkSettings.criteria` | When to seal the hot chunk. `"size"` (max file size) or `"blocks"` (max block range). |
-| `chunkSettings.maxSizeBytes` | (If criteria is `"size"`.) Maximum uncompressed chunk size before sealing. |
-| `chunkSettings.maxBlockRange` | (If criteria is `"blocks"`.) Maximum block range per chunk before sealing. |
-| `storeSettings.baseUrl` | Public URL prefix where clients will fetch the manifest and chunks. |
-| `storeSettings.fileNameTemplate` | Filename pattern for chunks. |
-| `storeSettings.backend` | Storage backend: `"s3"`, `"ftp"`, `"disk"`, etc. |
-| `storeSettings.backendSettings` | Backend-specific configuration. |
+| `fromBlock` | First block to scrape from. Protocol-defined. |
+| `reorgSafetyBuffer` | Number of blocks to stay behind the chain head when sealing chunks. |
+| `chunkSettings.maxSizeBytes` | Maximum uncompressed chunk size (bytes, number or `0x`-hex) before the hot head is sealed. |
 | `events` | List of contract addresses and event topics to monitor. |
 | `events[].filter` | Optional indexed parameter filter (topic1, topic2, etc.). |
 
-## 9. Manifest Signing (WIP)
+**Deployment concerns (out of scope for the config).** All protocols in a config publish into a single store under one shared manifest, so the **store target** is a per-run choice, not a per-protocol one — the reference implementation takes it on the CLI (a local directory or a `gs://bucket/prefix` target). The **schedule** is likewise external (cron, a cloud scheduler, etc.); the scraper itself is a single-shot batch. Other implementations may wire these up however they like.
 
-The manifest is the trust root: clients rely on it to discover chunks and their expected digests. If the CDN or hosting layer is compromised, an attacker could serve a modified manifest pointing to tampered chunks (which would pass digest checks since the digests themselves are in the manifest).
+## 9. Manifest Signing
 
-Manifest signing would allow clients to verify that the manifest was produced by a trusted scraper. This section is intentionally left incomplete for future work.
+The manifest is the trust root: clients rely on it to discover chunks and their expected digests. If the CDN or hosting layer is compromised, an attacker could serve a modified manifest pointing to tampered chunks (which would pass digest checks, since the digests themselves live in the manifest). A signature lets a client trust a *public key* rather than the host or URL.
 
-**Topics to address:**
+### 9.1 Scheme (implemented)
 
-- Signature format and algorithm (e.g., ECDSA with secp256k1 for Ethereum ecosystem familiarity, or Ed25519 for simplicity).
-- Key distribution: how does a client learn which public key(s) to trust?
-- Key rotation: how are keys updated without breaking existing clients?
-- Multi-signer support: can multiple independent scrapers co-sign a manifest for stronger guarantees?
-- Where the signature lives: a detached signature file, a field in the manifest, or an HTTP header.
+- **Algorithm: Ed25519** (raw 32-byte keys). Isomorphic across Node and browsers, and consistent with the SHA-256 digests used elsewhere — no extra primitives.
+- **Detached signature.** Computed over the exact `index.json` bytes and published alongside it as **`index.json.sig`** — a single `0x`-hex string, like every other hash/key in the system. Signing the manifest transitively authenticates every chunk, since each chunk's digest is in the manifest; there are no per-chunk signatures.
+- **Producer** signs unconditionally whenever a signing key is configured (`MANIFEST_SIGNING_KEY`, a `0x`-hex Ed25519 secret). The signature is rewritten on every manifest update. With no key configured the manifest is simply unsigned (still digest-verifiable).
+- **Consumer** verifies only when a public key is configured (e.g. `--public-key <hex>` in the reference client). When enabled, verification is **mandatory** and runs over the raw bytes *before* parsing: a missing `.sig` or a mismatch is a hard error. With no public key configured the consumer skips signature checks (chunk digests are still enforced).
+
+`index.json` and `index.json.sig` are two separate objects, not written atomically; a consumer that fetches a mismatched pair mid-publish fails verification and should retry.
+
+### 9.2 Open topics (future work)
+
+Signing authenticates the *publisher*, not data correctness (reproducibility + on-chain key anchoring cover that). Still open:
+
+- **Key distribution.** How a client learns which public key(s) to trust — planned to be anchored in an on-chain registry, which only changes *where* the consumer reads the key, not the verification above.
+- **Key rotation / revocation.** Updating keys without breaking existing clients.
+- **Multi-signer.** Whether multiple independent scrapers can co-sign one manifest for stronger guarantees.
 
 ## 10. Reproducibility
 
 Chunk digests are deterministic given identical inputs and configuration. Two scrapers producing chunks for the same protocol instance will produce identical digests if and only if:
 
 1. They use the same RPC data source (or equivalent -- same events returned).
-2. They use the same scraper configuration (`startBlock`, `chunkSettings`, `reorgSafetyBuffer`).
-3. They apply the same event ordering (`(blockNumber, logIndex)` ascending per group).
-4. They produce the same JSON serialization (key ordering, whitespace).
+2. They use the same scraper configuration (`fromBlock`, `chunkSettings`, `reorgSafetyBuffer`).
+3. They apply the canonical chunk form defined in §3.3 (fixed field set and order, lowercase minimal `0x`-hex, compact JSONL, global `(blockNumber, logIndex)` ordering, digest over the uncompressed bytes).
 
-Points 1-3 are achievable in practice. Point 4 requires the spec to define a canonical JSON serialization for chunks (to be specified -- likely sorted keys, no extra whitespace).
+All three are achievable in practice — the serialization is fully pinned (no sorted-keys/whitespace ambiguity), so identical inputs and configuration yield byte-identical chunks and digests.
 
 This is a **property**, not a **requirement**: the spec does not mandate multi-scraper consensus. A client trusts one manifest source. Independent verification is possible by running a scraper with identical configuration and comparing digests.
 
 ## 11. Open Questions
 
 - **Chunk size guidance.** What are good default max sizes? This depends on the protocol's event volume and client memory constraints. Needs benchmarking.
-- **Canonical JSON serialization.** To enable reproducibility, the spec should define exact JSON formatting for chunks (key order, whitespace, number formatting). Needs specifying.

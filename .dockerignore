@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.gitignore
+*.log
+*.tmp
+.rpc.env
+.locks
+plans
+measurements
+pp-chunks
+pp-cache
+pp-all-chunks
+deploy
+DEPLOY.md
