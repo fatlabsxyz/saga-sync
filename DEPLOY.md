@@ -18,7 +18,7 @@ Cloud Scheduler (daily cron)
 
 | File | Role |
 |---|---|
-| `Dockerfile` | Multi-stage build → slim runtime image (`npm ci --omit=dev` keeps the optional GCS SDK). |
+| `Dockerfile` | Multi-stage build → slim runtime image (`pnpm install --prod` keeps the optional GCS SDK). |
 | `docker/entrypoint.sh` | Fetches config from GCS, then runs the orchestrator → `gs://BUCKET`. No `--lock-dir` (single-execution scheduling is the guard). |
 | `docker/fetch-config.mjs` | Downloads `CONFIG_URI` to `/tmp/config.json` via the same ADC the orchestrator uses. |
 | `publish-config.json` | The three protocols (privacy-pools, tornado, railgun). Uploaded to the bucket; **not** baked into the image, so the protocol set changes without a rebuild. |

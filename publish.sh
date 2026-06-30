@@ -5,8 +5,8 @@
 # Cloud CDN endpoint in front of it — set CDN_BASE to switch the printed URLs.
 #
 # Prerequisites:
-#   1. npm run build
-#   2. npm install @google-cloud/storage        (optional dep; only needed for gs://)
+#   1. pnpm build
+#   2. pnpm install                              (installs the optional GCS SDK for gs://)
 #   3. gcloud auth application-default login     (ADC the SDK reads — NOT `gcloud auth login`)
 #   4. a public-read bucket if consumers fetch directly:
 #        gcloud storage buckets add-iam-policy-binding gs://$BUCKET \
@@ -49,10 +49,10 @@ PREFIX="${BUCKET#"$BUCKET_NAME"}"; PREFIX="${PREFIX#/}"
 
 # ---- preflight: fail fast, before the multi-minute scrape ----
 log "preflight: checking build, package, credentials, bucket access…"
-[ -f packages/producer/dist/orchestrator/cli.js ] || fail "not built — run: npm run build"
+[ -f packages/producer/dist/orchestrator/cli.js ] || fail "not built — run: pnpm build"
 [ -f "$CONFIG" ]                || fail "config not found: $CONFIG"
 node -e 'import("@google-cloud/storage").catch(()=>process.exit(1))' 2>/dev/null \
-  || fail '@google-cloud/storage not installed — run: npm install @google-cloud/storage'
+  || fail '@google-cloud/storage not installed — run: pnpm install'
 gcloud auth application-default print-access-token >/dev/null 2>&1 \
   || fail 'no Application Default Credentials — run: gcloud auth application-default login'
 

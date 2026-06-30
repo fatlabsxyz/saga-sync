@@ -12,10 +12,11 @@ full module/package layout.
 
 ## Build & deploy
 
-- This is an npm **workspace** (`saga-sync`) with three packages under
+- This is a **pnpm workspace** (`saga-sync`) with three packages under
   `packages/` — `@saga-sync/core`, `@saga-sync/client`, `@saga-sync/producer`.
-  Build everything with `npm run build` (`tsc -b`, project references); test with
-  `npm test` (`vitest run`).
+  Install with `pnpm install`; build everything with `pnpm build` (`tsc -b`,
+  project references); test with `pnpm test` (`vitest run`). pnpm is pinned via
+  the root `package.json` `packageManager` field (use corepack).
 - **Always run the Docker image build locally** before relying on it
   (`docker build -t saga-sync-job .` from the repo root). The deploy can build via
   Cloud Build, but the local build is the convention here — verify it locally

@@ -17,9 +17,9 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@saga-sync/core": "^0.1.0"
+    "@saga-sync/core": "workspace:*"
   },
   "devDependencies": {
-    "@saga-sync/producer": "^0.1.0"
+    "@saga-sync/producer": "workspace:*"
   }
 }

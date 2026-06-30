@@ -4,11 +4,7 @@
   "description": "Verifiable privacy-protocol state distribution — workspace root",
   "type": "module",
   "private": true,
-  "workspaces": [
-    "packages/core",
-    "packages/client",
-    "packages/producer"
-  ],
+  "packageManager": "pnpm@10.32.0",
   "engines": {
     "node": ">=20"
   },
@@ -18,10 +14,17 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "dependencies": {
+    "@saga-sync/core": "workspace:*",
+    "@google-cloud/storage": "^7.19.0"
+  },
   "devDependencies": {
     "@types/node": "^20.16.5",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2",
     "vitest": "^2.1.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
   }
 }

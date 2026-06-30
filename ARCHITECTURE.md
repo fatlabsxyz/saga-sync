@@ -72,7 +72,7 @@ subprocesses.
 - **Optional dependency**: `@google-cloud/storage`, used only by `GcsStore` and
   lazy-loaded — disk/http runs and consumers never load it (see §4.2).
 - **Dev dependencies**: `typescript`, `@types/node`, `tsx`, `vitest`.
-- Organized as an npm **workspace** (`saga-sync`) of three packages — see §3.
+- Organized as a pnpm **workspace** (`saga-sync`) of three packages — see §3.
   Root `package.json` scripts: `build` / `typecheck` → `tsc -b` (TypeScript
   project references build all packages in dependency order), `test` →
   `vitest run`.
@@ -87,7 +87,7 @@ subprocesses.
 
 ## 3. Repository layout
 
-An npm **workspace** (`saga-sync`) with three packages. The dependency graph is
+A pnpm **workspace** (`saga-sync`) with three packages. The dependency graph is
 a DAG — `client → core` and `producer → core`, with no runtime edge between
 client and producer (client dev-depends on producer only to build fixtures in its
 integration tests). Consumers install just `@saga-sync/client`, which pulls in
@@ -647,9 +647,9 @@ nothing newer.
 ## 9. Running it
 
 ```bash
-npm install
-npm run build
-npm test                       # ~171 unit tests
+pnpm install
+pnpm build
+pnpm test                       # ~181 unit tests
 
 # orchestrator — the normal path
 node packages/producer/dist/orchestrator/cli.js --config ./example-config.json \

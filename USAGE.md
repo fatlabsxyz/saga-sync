@@ -5,8 +5,8 @@ Quick reference for the three CLIs in the pipeline. For day-to-day operation, sk
 ## One-time setup
 
 ```bash
-npm install
-npm run build
+pnpm install
+pnpm build
 ```
 
 ## Basic invocation
