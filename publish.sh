@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Local publisher — run the orchestrator on this machine and write chunks +
-# index.json straight to a GCS bucket via GcsStore. Bucket-only for now (no CDN);
-# consumers read https://storage.googleapis.com/$BUCKET/...
+# index.json straight to a GCS bucket via GcsStore. Consumers read the bucket
+# directly (https://storage.googleapis.com/$BUCKET/...) or, once provisioned, the
+# Cloud CDN endpoint in front of it — set CDN_BASE to switch the printed URLs.
 #
 # Prerequisites:
 #   1. npm run build
@@ -36,6 +37,11 @@ fail() { printf '[publish %s] ERROR: %s\n' "$(date +%H:%M:%S)" "$*" >&2; exit 1;
 : "${RPC:?set RPC (the Ethereum JSON-RPC URL) or provide it via .rpc.env}"
 CONFIG="${CONFIG:-./privacy-pools-config.json}"
 LOCK_DIR="${LOCK_DIR:-./.locks}"
+# Canonical read endpoint shown to consumers. Defaults to the public bucket URL;
+# set CDN_BASE to the Cloud CDN endpoint (http://<lb-ip>/, see deploy/cdn.sh)
+# once it's provisioned so every printed command points at the CDN.
+CDN_BASE="${CDN_BASE:-https://storage.googleapis.com/$BUCKET/}"
+CDN_BASE="${CDN_BASE%/}/"
 mkdir -p "$LOCK_DIR"
 
 BUCKET_NAME="${BUCKET%%/*}"                  # bucket without any /prefix
@@ -108,8 +114,8 @@ log "orchestrator finished in ${ELAPSED}s"
 log "objects now under gs://$BUCKET:"
 gcloud storage ls -l "gs://$BUCKET/**" 2>/dev/null | sed 's/^/  /' >&2 \
   || log "  (could not list bucket — check gcloud)"
-log "done. consumers read: https://storage.googleapis.com/$BUCKET/index.json"
+log "done. consumers read: ${CDN_BASE}index.json"
 if [ -n "$PUBLIC_KEY" ]; then
   log "signed manifest — consumers verify with --public-key $PUBLIC_KEY, e.g.:"
-  log "  node dist/client/cli.js stream https://storage.googleapis.com/$BUCKET/ <protocolId> --public-key $PUBLIC_KEY"
+  log "  node dist/client/cli.js stream $CDN_BASE <protocolId> --public-key $PUBLIC_KEY"
 fi

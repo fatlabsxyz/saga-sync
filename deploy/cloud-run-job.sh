@@ -23,6 +23,10 @@ CRON="${CRON:-0 6 * * *}"                                # 06:00 UTC daily
 SA="${SA:-scraper-job@$PROJECT.iam.gserviceaccount.com}"
 SA_NAME="${SA%%@*}"
 ALERT_EMAIL="${ALERT_EMAIL:-}"                           # set to wire a failure alert
+# Canonical read endpoint shown in the summary. Defaults to the public bucket
+# URL; set CDN_BASE to the Cloud CDN endpoint (http://<lb-ip>/, deploy/cdn.sh).
+CDN_BASE="${CDN_BASE:-https://storage.googleapis.com/$BUCKET/}"
+CDN_BASE="${CDN_BASE%/}/"
 
 # SECRETS — create these once with YOUR values (never committed):
 #   printf '%s' "$ALCHEMY_RPC_URL" | gcloud secrets create scraper-rpc \
@@ -224,4 +228,4 @@ fi
 echo "==> done."
 echo "    one-off run now : gcloud run jobs execute $JOB --project $PROJECT --region $REGION"
 echo "    logs            : gcloud run jobs executions list --job $JOB --project $PROJECT --region $REGION"
-echo "    consumers read  : https://storage.googleapis.com/$BUCKET/index.json"
+echo "    consumers read  : ${CDN_BASE}index.json"

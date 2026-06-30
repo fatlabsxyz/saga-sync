@@ -652,13 +652,17 @@ same objects over plain HTTP.
   `parseStoreTarget` → `GcsStore`. Chunks + `index.json` are written straight to
   the bucket with per-object `Cache-Control`: sealed chunks
   `max-age=31536000, immutable`, `index.json` / hot head `max-age=30`.
-- **Consumer read** — point the client's manifest URL at the bucket
-  (`https://storage.googleapis.com/<bucket>/`) or, later, a custom domain in front
-  of Cloud CDN. `HttpStore` does plain GETs; **nothing in the client changes**.
-- **Cloud CDN (optional)** — a backend bucket with `--enable-cdn
-  --cache-mode=USE_ORIGIN_HEADERS` honors the `Cache-Control` above, so immutable
-  chunks pin at the edge while the manifest re-validates. Needs an HTTPS load
-  balancer + custom domain; until then the bucket URL works directly.
+- **Consumer read** — point the client's manifest URL at the Cloud CDN endpoint
+  in front of the bucket (`http://<lb-ip>/`), or at the bucket directly
+  (`https://storage.googleapis.com/<bucket>/`). `HttpStore` does plain GETs;
+  **nothing in the client changes** — the URL is just an argument.
+- **Cloud CDN (`deploy/cdn.sh`)** — an external HTTP load balancer with a backend
+  bucket created `--enable-cdn --cache-mode=USE_ORIGIN_HEADERS`, which honors the
+  `Cache-Control` above so immutable chunks pin at the edge while the manifest
+  re-validates. Served over plain HTTP on the LB's anycast IP — no domain/TLS,
+  because the signed manifest + content-verified chunks guarantee integrity
+  end-to-end and the data is public. A custom domain over HTTPS is a later add
+  (managed cert + HTTPS proxy + `:443` rule on the same IP).
 - **Running it** — `publish.sh` runs the orchestrator locally writing to
   `gs://$BUCKET` (uses ADC for auth, keeps the lockfile on the local FS). The
   natural next step is a **Cloud Run Job + Cloud Scheduler** with the RPC URL in
