@@ -70,12 +70,16 @@ subprocesses.
   signing). The two `@noble` libs are pure-JS and isomorphic, so the consumer
   library is browser-safe (see §11).
 - **Optional dependency**: `@google-cloud/storage`, used only by `GcsStore` and
-  lazy-loaded — disk/http runs and consumers never load it (see §4.1).
+  lazy-loaded — disk/http runs and consumers never load it (see §4.2).
 - **Dev dependencies**: `typescript`, `@types/node`, `tsx`, `vitest`.
-- `package.json` scripts: `build` → `tsc`, `test` → `vitest run`,
-  `typecheck` → `tsc --noEmit`, `dev` → `tsx`.
-- `tsconfig.json`: `target ES2022`, `module/moduleResolution Node16`, `strict`,
-  `rootDir src`, `outDir dist`, test files excluded from the build.
+- Organized as an npm **workspace** (`saga-sync`) of three packages — see §3.
+  Root `package.json` scripts: `build` / `typecheck` → `tsc -b` (TypeScript
+  project references build all packages in dependency order), `test` →
+  `vitest run`.
+- `tsconfig.base.json` holds the shared compiler options (`target ES2022`,
+  `module/moduleResolution Node16`, `strict`, `composite`); each package's
+  `tsconfig.json` extends it with its own `rootDir src` / `outDir dist` and
+  `references` to the packages it depends on. Test files are excluded from the build.
 - No database, no message queue, no framework. State is plain files behind the
   `Store`.
 
@@ -83,204 +87,233 @@ subprocesses.
 
 ## 3. Repository layout
 
+An npm **workspace** (`saga-sync`) with three packages. The dependency graph is
+a DAG — `client → core` and `producer → core`, with no runtime edge between
+client and producer (client dev-depends on producer only to build fixtures in its
+integration tests). Consumers install just `@saga-sync/client`, which pulls in
+`@saga-sync/core` and `@noble/*` — no viem, no `@google-cloud/storage`, no
+scraper.
+
 ```
-src/
-  storage/
-    store.ts          Store interface — put / get / delete / list (all async)
-    disk-store.ts     DiskStore: local FS, atomic write via temp-file + rename
-    dry-run-store.ts  DryRunStore: decorator that no-ops writes, delegates reads
-    http-store.ts     HttpStore: read-only fetch over a base URL (consumer side)
-    gcs-store.ts      GcsStore: write to a GCS bucket (producer publish side)
-    index.ts          createStore() factory + parseStoreTarget() + re-exports
-  hash.ts             sha256Hex() — the one place the digest algorithm is named
-  signing.ts          Ed25519 sign/verify of the manifest — the one place signing lives
-  keygen.ts           CLI: print an Ed25519 manifest-signing keypair
-  index.ts            browser-safe library entry (Client, HttpStore, verify helpers, types)
-  scraper/
-    config.ts         load + zod-validate the config; loadConfig / loadAllProtocols
-    normalize.ts      raw RPC log → CanonicalEvent
-    scrape.ts         async generator: windowed eth_getLogs with adaptive split
-    cursor.ts         Cursor class — standalone-scraper resume pointer
-    cli.ts            scraper entry point; exports finalizedBlock, assertChainId
-  chunk-builder/
-    archive.ts        ChunkArchive class — encode/decode chunk files over a Store
-    accumulator.ts    ChunkAccumulator class — block-aligned partition state machine
-    manifest.ts       Manifest class + ChunkMeta type — the index.json
-    cli.ts            chunk-builder entry point; exports processStream
-  orchestrator/
-    pipeline.ts       runProtocolOnce — composes scrape + chunk-builder in-process
-    cli.ts            orchestrator entry point; lockfile, batch loop, hot-head lifecycle
-  client/
-    fetch.ts          decodeAndVerify + fetchChunkFrom — DecompressionStream gunzip, verify, parse
-    verify.ts         verifyDigest (sha256) + verifyChunkEvents (range + ordering) vs manifest
-    manifest.ts       loadManifest (+ optional signature check) + range helpers
-    client.ts         Client class — merged streamEvents over sealed chunks + hot head
-    format.ts         humanBytes + table — CLI rendering helpers
-    cli.ts            client entry point; protocols/info/head/chunks/stream subcommands
+packages/
+  core/      @saga-sync/core — shared kernel. deps: @noble/* only (NO viem).
+    src/                     browser-safe "." entry; Node-only DiskStore at "./node"
+      hex.ts            Hex — 0x-string type alias (replaces viem's Hex)
+      hash.ts           sha256Hex() — the one place the digest algorithm is named
+      signing.ts        Ed25519 sign/verify of the manifest — the one place signing lives
+      manifest.ts       Manifest class + ChunkMeta/ManifestData — the index.json schema
+      events.ts         CanonicalEvent type — the persisted log shape (shared)
+      store.ts          Store interface — put / get / delete / list (all async)
+      http-store.ts     HttpStore: read-only fetch over a base URL (consumer side)
+      disk-store.ts     DiskStore: local FS atomic write (exported from "./node")
+      index.ts          browser-safe barrel;  node.ts re-exports DiskStore
+  client/    @saga-sync/client — consumer lib + CLI. deps: core. bin: state-client.
+    src/
+      fetch.ts          decodeAndVerify + fetchChunkFrom — DecompressionStream gunzip, verify, parse
+      verify.ts         verifyDigest (sha256) + verifyChunkEvents (range + ordering) vs manifest
+      manifest.ts       loadManifest (+ optional signature check) + range helpers
+      client.ts         Client class — merged streamEvents over sealed chunks + hot head
+      format.ts         humanBytes + table — CLI rendering helpers
+      cli.ts            client CLI; protocols/info/head/chunks/stream subcommands
+      index.ts          browser-safe library entry (Client, verify helpers, re-exports from core)
+  producer/  @saga-sync/producer — scrape + chunk + orchestrate + cloud stores.
+    src/                     deps: core, viem, zod, (optional) @google-cloud/storage
+      scraper/
+        config.ts       load + zod-validate the config; loadConfig / loadAllProtocols
+        normalize.ts    raw RPC log → CanonicalEvent (re-exports the type from core)
+        scrape.ts       async generator: windowed eth_getLogs with adaptive split
+        cursor.ts       Cursor class — standalone-scraper resume pointer
+        cli.ts          scraper entry point; exports finalizedBlock, assertChainId
+      chunk-builder/
+        archive.ts      ChunkArchive class — encode/decode chunk files over a Store
+        accumulator.ts  ChunkAccumulator class — block-aligned partition state machine
+        cli.ts          chunk-builder entry point; exports processStream
+      orchestrator/
+        pipeline.ts     runProtocolOnce — composes scrape + chunk-builder in-process
+        cli.ts          orchestrator entry point; lockfile, batch loop, hot-head lifecycle
+      storage/
+        gcs-store.ts    GcsStore: write to a GCS bucket (producer publish side)
+        dry-run-store.ts DryRunStore: decorator that no-ops writes, delegates reads
+        index.ts        createStore() factory + parseStoreTarget()
+      keygen.ts         CLI: print an Ed25519 manifest-signing keypair
+      index.ts          producer API barrel (ChunkArchive, for integration fixtures)
 ```
 
-Every module has a sibling `*.test.ts` (vitest). ~171 unit tests; both the
+Every module has a sibling `*.test.ts` (vitest). ~181 unit tests; both the
 producer pipeline and the client are verified end-to-end against
 locally-published state served over HTTP (and the producer against a live
-mainnet RPC). The browser library entry (`src/index.ts`) additionally bundles
-clean with `esbuild --platform=browser` (no polyfills, no `node:` imports — there
-is a guard test for this).
+mainnet RPC). The browser library entry (`packages/client/src/index.ts`)
+additionally bundles clean for the browser (no polyfills, no `node:` imports —
+there is a guard test for this).
 
 ---
 
 ## 4. Modules in detail
 
-### 4.1 storage/
+Grouped by package (§3). Every module has a sibling `*.test.ts`.
 
-`Store` is the one seam for persistence. Keys are flat object names; the
-interface is async because S3/HTTP backends are inherently async.
+### 4.1 `@saga-sync/core` — shared kernel
+
+Schema, crypto, and the dependency-free stores both sides share. Browser-safe `.`
+entry; the Node-only `DiskStore` is exported from `@saga-sync/core/node`.
+
+`Store` is the one seam for persistence. Keys are flat object names; the interface
+is async because S3/HTTP backends are inherently async.
 
 ```ts
 interface Store {
-  put(key: string, data: Buffer): Promise<void>;   // atomic — no partial reads
-  get(key: string): Promise<Buffer | null>;        // null if absent
-  delete(key: string): Promise<void>;              // no error if absent
-  list(prefix: string): Promise<string[]>;         // keys under a prefix
+  put(key: string, data: Uint8Array): Promise<void>;   // atomic — no partial reads
+  get(key: string): Promise<Uint8Array | null>;        // null if absent
+  delete(key: string): Promise<void>;                  // no error if absent
+  list(prefix: string): Promise<string[]>;             // keys under a prefix
 }
 ```
 
-- **`DiskStore`** — backed by a base directory. `put` writes `${file}.${pid}.tmp`
-  then `rename`s over the target; the rename is atomic on a single filesystem,
-  so a crash mid-write never leaves a partial object.
-- **`DryRunStore`** — decorates another `Store`; `put`/`delete` become no-ops,
-  `get`/`list` pass through. This is how `--dry-run` is implemented — every other
-  class stays oblivious to dry-run.
+- **`DiskStore`** (`./node`) — backed by a base directory. `put` writes
+  `${file}.${pid}.tmp` then `rename`s over the target; the rename is atomic on a
+  single filesystem, so a crash mid-write never leaves a partial object. Used by
+  the producer (local output) and the client CLI (chunk cache).
 - **`HttpStore`** — read-only, backed by a base URL: `get` fetches
-  `${baseUrl}/${key}`, returning `null` on 404. `put`/`delete`/`list` throw (same
-  throw-on-unsupported pattern `DryRunStore` uses for the inverse case). The
-  consumer read-side; pairs with a CDN-fronted bucket.
+  `${baseUrl}/${key}`, returning `null` on 404. `put`/`delete`/`list` throw. The
+  consumer read-side; pairs with a CDN-fronted bucket. Fetch-based, so browser-safe.
+- **`hash.ts`** — `sha256Hex(bytes)`, the one place the digest algorithm is named;
+  producer and consumer both go through it so digests agree. Pure `@noble` + its
+  own hex (no `Buffer`), so it runs unchanged in a browser.
+- **`signing.ts`** — manifest signing, the one place Ed25519 lives.
+  `signManifest(bytes, secret)` / `verifyManifestSignature` over `@noble/curves`;
+  `signerFromEnv()` builds a signer from the `MANIFEST_SIGNING_KEY` env var (a
+  32-byte hex seed), which both producer CLIs pass to `Manifest`. A **detached
+  signature over the raw `index.json` bytes** authenticates the publisher; because
+  the manifest holds every chunk's digest, one signature transitively authenticates
+  the whole dataset. Opt-in on both ends: the producer signs only when a key is
+  set; the consumer verifies only when a public key is supplied (§4.3). Public-key
+  distribution is out-of-band today (a pinned `--public-key`); an on-chain registry
+  + key rotation are future work (§11).
+- **`manifest.ts`** — the `Manifest` class wrapping a `Store`, plus the `ChunkMeta`
+  / `ManifestData` types — the `index.json` schema, shared because the producer
+  writes it and the client reads it. Holds `index.json` in memory; **every mutation
+  persists atomically** (so a crash leaves the manifest consistent up to the last
+  completed seal). Reads: `sealedChunks`, `hotHead`, `lastCoveredBlock`, `gaps`.
+  Mutations: `appendChunk`, `setHotHead`, `clearHotHead`. With an optional
+  **`signer`**, `persist()` also writes a detached `index.json.sig` over the
+  serialized bytes on every write.
+- **`events.ts`** — the `CanonicalEvent` type (the persisted log shape), shared:
+  the producer's `normalize()` writes it, the client reconstructs it.
+  **`hex.ts`** — the `Hex` = `` `0x${string}` `` alias replacing viem's `Hex`, so
+  core (and client) carry no viem dependency.
+
+### 4.2 `@saga-sync/producer` — scrape · chunk · orchestrate · publish
+
+**`scraper/`** — pure "input range → output events"; writes no chunks or manifest.
+
+- **`config.ts`** — reads the config JSON, zod-validates **only** the fields the
+  pipeline uses. `loadConfig(path, protocolId)` returns one `ScraperTarget`;
+  `loadAllProtocols(path)` returns all of them. Validated: `chainId`, `fromBlock`,
+  `events[]`. Optional: `chunkSettings.maxSizeBytes`. Store target and schedule are
+  deployment concerns, not config (see §7.1).
+- **`normalize.ts`** — `normalize(rpcLog)` → `CanonicalEvent` (the type comes from
+  core and is re-exported here for existing importers): lowercases every hex field,
+  sets `eventTopic = topics[0]`, keeps the full `topics` array, and rejects pending
+  logs (null block fields). Keeps indexed event args (commitments, nullifiers live
+  in `topics[1..]`); drops only `transactionHash`/`blockHash` (incompressible, and
+  unneeded given the reorg-safe scrape boundary).
+- **`scrape.ts`** — `scrape(client, opts)` is an async generator yielding raw RPC
+  logs. It slices `[fromBlock, toBlock]` into `window`-sized sub-ranges and, per
+  sub-range, issues a raw `eth_getLogs` request per event filter. On a
+  range/result-size error it **halves the window and retries** that sub-range. Each
+  window is fully buffered and sorted by `(blockNumber, logIndex)` before any log
+  is yielded, so a retry never double-emits.
+- **`cursor.ts`** — `Cursor` class over a `Store`. Records `lastScrapedBlock` per
+  protocol. **Only used by direct scraper-CLI runs**; the orchestrator derives
+  resume points from the manifest instead.
+- **`cli.ts`** — the scraper entry point. Also exports `finalizedBlock(client)`
+  (the chain's own finalized block, or `null` if unsupported) and
+  `assertChainId(client, expected)` (fails fast on a misconfigured RPC), reused by
+  the orchestrator.
+
+**`chunk-builder/`** — consumes `CanonicalEvent` NDJSON, produces chunk files +
+drives core's `Manifest`.
+
+- **`accumulator.ts`** — `ChunkAccumulator`, a **pure** (no-I/O) block-aligned
+  partition state machine. Events are fed in order; it buffers the in-progress
+  block separately and only commits it once the next block arrives — guaranteeing a
+  chunk boundary always falls *between* blocks (a multi-event block is never
+  split). `add(event)` returns a completed chunk when a size boundary was crossed;
+  `finish()` returns the trailing accumulator.
+- **`archive.ts`** — `ChunkArchive` over a `Store`. `seal()` / `writeHotHead()`
+  build the JSONL, compute the sha256 digest of the **uncompressed** bytes, gzip,
+  and `put` under a range-derived filename. `readEvents()` is the inverse
+  (`get` + gunzip + parse). `buildJsonl()` is exported (and is what the client's
+  integration tests use as a fixture builder).
+- **`cli.ts`** — `processStream(lines, args)` drives the accumulator: feed seed
+  events (a prior hot head, optional) → feed stream events, sealing each completed
+  chunk through `ChunkArchive` + `Manifest` → handle the trailing accumulator,
+  either **sealed** (`trailingMode: "seal"`, the standalone-CLI default) or
+  **returned** (`trailingMode: "suspend"`, the orchestrator's hot-head carry-over).
+
+**`orchestrator/`** — the cron entry point; composes the other two stages in-process.
+
+- **`pipeline.ts`** — `runProtocolOnce(opts)` builds the scrape → normalize →
+  NDJSON generator and hands it to `processStream`. No subprocess, no stdio piping:
+  errors propagate as plain exceptions.
+- **`cli.ts`** — per tick: acquire a lockfile, load the config and the manifest,
+  query the chain tip, then for each protocol run `processProtocol` — which resolves
+  the start block, loads any prior hot head, loops `[start, tip]` in `--batch-size`
+  steps calling `runProtocolOnce`, and persists the final trailing accumulator as
+  the new hot head. Also exports `acquireLock(path)`.
+
+**`storage/`** — the producer-only stores + the factory.
+
 - **`GcsStore`** — producer write-side, backed by a Google Cloud Storage bucket
   (optional `prefix`). GCS object writes are atomic + strongly consistent, so no
   temp-file+rename is needed. Sets `Content-Type` and `Cache-Control` per key
   (sealed chunks immutable + long-lived; `index.json` / hot head short TTL). The
   `@google-cloud/storage` SDK is lazy-loaded behind an injectable provider, so the
   module compiles + unit-tests without the dependency and no other path loads it.
-- **`createStore(cfg)`** — maps `cfg.protocol` (`disk` | `s3` | `http` | `ftp` |
-  `gcs`) to an implementation. `disk`, `http`, `gcs` exist; `s3` / `ftp` throw a
-  clear error until their classes are added. If `cfg.dryRun` is set, the result is
-  wrapped in `DryRunStore`.
-- **`parseStoreTarget(target)`** — resolves a producer `--output-dir`: a
-  `gs://bucket[/prefix]` target selects `GcsStore`, anything else is a local disk
-  path. Shared by the orchestrator and chunk-builder CLIs.
+- **`DryRunStore`** — decorates another `Store`; `put`/`delete` become no-ops,
+  `get`/`list` pass through. How `--dry-run` is implemented — every other class
+  stays oblivious to dry-run.
+- **`createStore(cfg)`** / **`parseStoreTarget(target)`** — the factory maps
+  `cfg.protocol` (`disk` | `http` | `gcs` | `s3` | `ftp`) to an implementation
+  (`disk`→core's `DiskStore`, `http`→core's `HttpStore`, `gcs`→`GcsStore`;
+  `s3`/`ftp` throw until added; `dryRun` wraps the result). `parseStoreTarget`
+  resolves a producer `--output-dir`: a `gs://bucket[/prefix]` selects `GcsStore`,
+  anything else is a local disk path. Shared by the orchestrator and chunk-builder CLIs.
 
-### 4.2 scraper/
+**`keygen.ts`** — CLI that mints an Ed25519 manifest-signing keypair (over core's
+`signing`).
 
-Pure "input range → output events". Does not write chunks or the manifest.
+### 4.3 `@saga-sync/client` — the consumer
 
-- **`config.ts`** — reads the config JSON, zod-validates **only** the fields the
-  pipeline uses. `loadConfig(path, protocolId)` returns one `ScraperTarget`;
-  `loadAllProtocols(path)` returns all of them. Validated: `chainId`,
-  `fromBlock`, `events[]`. Optional: `chunkSettings.maxSizeBytes`. Store target
-  and schedule are deployment concerns, not config (see §7.1).
-- **`normalize.ts`** — `normalize(rpcLog)` → `CanonicalEvent`: lowercases every
-  hex field, sets `eventTopic = topics[0]`, keeps the full `topics` array, and
-  rejects pending logs (null block fields). It keeps what state reconstruction
-  needs — indexed event args (commitments, nullifiers) live in `topics[1..]`, so
-  those are preserved — and drops only `transactionHash`/`blockHash`
-  (incompressible, and unneeded given the reorg-safe scrape boundary).
-- **`scrape.ts`** — `scrape(client, opts)` is an async generator yielding raw RPC
-  logs. It slices `[fromBlock, toBlock]` into `window`-sized sub-ranges and, per
-  sub-range, issues a raw `eth_getLogs` request per event filter. On a
-  range/result-size error it **halves the window and retries** that sub-range.
-  Each window is fully buffered and sorted by `(blockNumber, logIndex)` before
-  any log is yielded, so a retry never double-emits.
-- **`cursor.ts`** — `Cursor` class over a `Store`. Records `lastScrapedBlock` per
-  protocol. **Only used by direct scraper-CLI runs**; the orchestrator derives
-  resume points from the manifest instead.
-- **`cli.ts`** — the scraper entry point. Also exports two helpers reused by the
-  orchestrator: `finalizedBlock(client)` (the chain's own finalized block, or
-  `null` if unsupported) and `assertChainId(client, expected)` (fails fast on a
-  misconfigured RPC).
+Given a manifest URL it reconstructs a protocol's event history by downloading the
+static files and verifying them — no trust in the publisher beyond the manifest
+itself. Reads through the same `Store` seam (core's `HttpStore`), with an optional
+local cache `Store`. Browser-safe (its `index.ts` is the bundle entry).
 
-### 4.3 chunk-builder/
-
-Consumes `CanonicalEvent` NDJSON, produces chunk files + the manifest.
-
-- **`accumulator.ts`** — `ChunkAccumulator`, a **pure** (no-I/O) block-aligned
-  partition state machine. Events are fed in order; it buffers the in-progress
-  block separately and only commits it once the next block arrives — guaranteeing
-  a chunk boundary always falls *between* blocks (a multi-event block is never
-  split). `add(event)` returns a completed chunk when a size boundary was
-  crossed; `finish()` returns the trailing accumulator.
-- **`archive.ts`** — `ChunkArchive` over a `Store`. `seal()` / `writeHotHead()`
-  build the JSONL, compute the sha256 digest of the **uncompressed** bytes, gzip,
-  and `put` under a range-derived filename. `readEvents()` is the inverse
-  (`get` + gunzip + parse). `buildJsonl()` is exported for reuse.
-- **`manifest.ts`** — `Manifest` class wrapping a `Store`. Holds `index.json` in
-  memory; **every mutation persists atomically** (so a crash leaves the manifest
-  consistent up to the last completed seal). Reads: `sealedChunks`, `hotHead`,
-  `lastCoveredBlock`. Mutations: `appendChunk`, `setHotHead`, `clearHotHead`.
-  Also defines `ChunkMeta` — the per-chunk record. If constructed with an optional
-  **`signer`**, `persist()` also writes a detached `index.json.sig` over the
-  serialized bytes on every write (manifest signing, below).
-- **`signing.ts`** (top-level) — manifest signing, the one place Ed25519 lives
-  (sibling of `hash.ts`). `signManifest(bytes, secret)` / `verifyManifestSignature`
-  over `@noble/curves`; `signerFromEnv()` builds a signer from the
-  `MANIFEST_SIGNING_KEY` env var (a 32-byte hex seed), which both producer CLIs
-  pass to `Manifest`. A **detached signature over the raw `index.json` bytes**
-  authenticates the publisher; because the manifest holds every chunk's digest,
-  one signature transitively authenticates the whole dataset. Opt-in on both ends:
-  the producer signs only when a key is set; the consumer verifies only when a
-  public key is supplied (§4.5). Public-key distribution is out-of-band today (a
-  pinned `--public-key`); an on-chain registry + key rotation are future work
-  (§11). `keygen.ts` mints a keypair.
-- **`cli.ts`** — `processStream(lines, args)` drives the accumulator: feed seed
-  events (a prior hot head, optional) → feed stream events, sealing each
-  completed chunk through `ChunkArchive` + `Manifest` → handle the trailing
-  accumulator. The trailing is either **sealed** (`trailingMode: "seal"`, the
-  standalone-CLI default) or **returned** (`trailingMode: "suspend"`, the
-  orchestrator's hot-head carry-over path).
-
-### 4.4 orchestrator/
-
-The cron entry point. Composes the other two stages in-process.
-
-- **`pipeline.ts`** — `runProtocolOnce(opts)` builds the scrape → normalize →
-  NDJSON generator and hands it to `processStream`. No subprocess, no stdio
-  piping: errors propagate as plain exceptions.
-- **`cli.ts`** — the orchestrator. Per tick: acquire a lockfile, load the config
-  and the manifest, query the chain tip, then for each protocol run
-  `processProtocol` — which resolves the start block, loads any prior hot head,
-  loops `[start, tip]` in `--batch-size` steps calling `runProtocolOnce`, and
-  persists the final trailing accumulator as the new hot head. Also exports
-  `acquireLock(path)`.
-
-### 4.5 client/
-
-The consumer. Given a manifest URL it reconstructs a protocol's event history by
-downloading the static files and verifying them — no trust in the publisher
-beyond the manifest itself. Reads through the same `Store` seam (`HttpStore`),
-with an optional local cache `Store`.
-
-- **`verify.ts`** — `verifyDigest(meta, bytes)` recomputes the sha256 of a
-  chunk's uncompressed JSONL and compares it to the manifest entry; mismatch
-  throws `DigestMismatchError`. `verifyChunkEvents(meta, events)` then enforces
-  the §3.3 canonical form the digest can't catch on its own — every event in the
-  chunk's `[fromBlock, toBlock)` range and strictly ascending by
-  `(blockNumber, logIndex)`; violations throw `CanonicalFormError`. Both are
-  **mandatory** on every chunk, cache hits included.
+- **`verify.ts`** — `verifyDigest(meta, bytes)` recomputes the sha256 of a chunk's
+  uncompressed JSONL and compares it to the manifest entry; mismatch throws
+  `DigestMismatchError`. `verifyChunkEvents(meta, events)` then enforces the §3.3
+  canonical form the digest can't catch on its own — every event in the chunk's
+  `[fromBlock, toBlock)` range and strictly ascending by `(blockNumber, logIndex)`;
+  violations throw `CanonicalFormError`. Both are **mandatory** on every chunk,
+  cache hits included.
 - **`fetch.ts`** — `decodeAndVerify` (gunzip via the web-standard
-  `DecompressionStream` → verify digest → JSONL parse → verify canonical form)
-  and `fetchChunkFrom(store, meta)`.
-  A missing file throws `ChunkNotFoundError`, distinct from a digest mismatch so
-  callers can tell "absent" from "tampered".
+  `DecompressionStream` → verify digest → JSONL parse → verify canonical form) and
+  `fetchChunkFrom(store, meta)`. A missing file throws `ChunkNotFoundError`,
+  distinct from a digest mismatch so callers can tell "absent" from "tampered".
 - **`manifest.ts`** — `loadManifest(store, key, { publicKey? })` (single fetch;
   throws if absent) plus pure `selectSealedChunks` / `selectHotHead` range-overlap
   helpers. When a `publicKey` is supplied it fetches `index.json.sig` and verifies
   the **Ed25519 manifest signature over the raw bytes before parsing** — mandatory
-  once enabled (missing or mismatched signature throws). Re-uses the producer-side
-  `Manifest` class so the shape is defined once.
+  once enabled (missing or mismatched signature throws). Re-uses core's `Manifest`
+  class so the shape is defined once.
 - **`client.ts`** — the `Client` class. `streamEvents(protocolId, {from,to})`
   yields the merged `CanonicalEvent` stream in block order: sealed chunks (fetched
   with a bounded-concurrency sliding window, yielded in submission order) then the
-  hot head (re-fetched every call, never cached). Sealed chunks optionally cache
-  to a local `Store` — safe because they are immutable and content-addressed, and
+  hot head (re-fetched every call, never cached). Sealed chunks optionally cache to
+  a local `Store` — safe because they are immutable and content-addressed, and
   re-verified on every read.
+- **`format.ts`** — `humanBytes` + `table`, the CLI's rendering helpers.
 - **`cli.ts`** — `protocols` / `info` / `head` / `chunks` (manifest-only, no chunk
   downloads) and `stream` (the full download). See §8.
 
@@ -522,7 +555,7 @@ removed on exit; a stale lock (dead pid) is reclaimed automatically.
 
 ## 8. The four CLIs
 
-### scraper — `node dist/scraper/cli.js`
+### scraper — `node packages/producer/dist/scraper/cli.js`
 
 ```
 --config <path>        required   config JSON
@@ -538,7 +571,7 @@ removed on exit; a stale lock (dead pid) is reclaimed automatically.
 
 Emits NDJSON on stdout, a summary on stderr. Exit 0 on success, 1 on error.
 
-### chunk-builder — `node dist/chunk-builder/cli.js`
+### chunk-builder — `node packages/producer/dist/chunk-builder/cli.js`
 
 ```
 --protocol-id <id>     required   manifest key + filename prefix
@@ -552,7 +585,7 @@ Emits NDJSON on stdout, a summary on stderr. Exit 0 on success, 1 on error.
 Reads NDJSON on stdin. The standalone CLI always seals the trailing partial
 (no hot heads — that path is orchestrator-only).
 
-### orchestrator — `node dist/orchestrator/cli.js`
+### orchestrator — `node packages/producer/dist/orchestrator/cli.js`
 
 ```
 --config <path>        required   config JSON (all protocols)
@@ -570,11 +603,11 @@ Reads NDJSON on stdin. The standalone CLI always seals the trailing partial
 The intended cron entry point — one daily entry handles every protocol:
 
 ```
-0 2 * * * cd /repo && node dist/orchestrator/cli.js --config ./config.json \
+0 2 * * * cd /repo && node packages/producer/dist/orchestrator/cli.js --config ./config.json \
   --rpc https://ethereum-rpc.publicnode.com --output-dir ./chunks
 ```
 
-### client — `node dist/client/cli.js`
+### client — `node packages/client/dist/cli.js`
 
 The consumer CLI. Subcommands take a `<manifest-url>` (the manifest is read from
 `<url>/index.json`); the query commands fetch **only** the manifest.
@@ -606,7 +639,7 @@ nothing newer.
 
 > Producer signing is configured by the **`MANIFEST_SIGNING_KEY`** env var (a
 > 32-byte hex Ed25519 seed) on the orchestrator / chunk-builder; `node
-> dist/keygen.js` prints a fresh keypair. Set it before a run to publish a signed
+> packages/producer/dist/keygen.js` prints a fresh keypair. Set it before a run to publish a signed
 > `index.json.sig`; consumers pin the matching public key via `--public-key`.
 
 ---
@@ -619,23 +652,23 @@ npm run build
 npm test                       # ~171 unit tests
 
 # orchestrator — the normal path
-node dist/orchestrator/cli.js --config ./example-config.json \
+node packages/producer/dist/orchestrator/cli.js --config ./example-config.json \
   --rpc https://ethereum-rpc.publicnode.com --output-dir ./chunks
 
 # manual scraper | chunk-builder pipe (note: scraper to-block is inclusive,
 # chunk-builder to-block is exclusive, hence +1)
-node dist/scraper/cli.js --config ./example-config.json \
+node packages/producer/dist/scraper/cli.js --config ./example-config.json \
   --protocol-id tornado-cash-1-eth-0.1 --rpc <url> \
   --from-block 0xC50101 --to-block 0xC50200 \
-| node dist/chunk-builder/cli.js --protocol-id tornado-cash-1-eth-0.1 \
+| node packages/producer/dist/chunk-builder/cli.js --protocol-id tornado-cash-1-eth-0.1 \
   --from-block 0xC50101 --to-block 0xC50201 --output-dir ./chunks
 
 # verify a chunk against the manifest
 gunzip -c ./chunks/<file>.jsonl.gz | shasum -a 256   # == digest in the manifest
 
 # consume the published state (serve ./chunks over HTTP, then):
-node dist/client/cli.js info   http://localhost:8080/ tornado-cash-1-eth-0.1
-node dist/client/cli.js stream http://localhost:8080/ tornado-cash-1-eth-0.1 \
+node packages/client/dist/cli.js info   http://localhost:8080/ tornado-cash-1-eth-0.1
+node packages/client/dist/cli.js stream http://localhost:8080/ tornado-cash-1-eth-0.1 \
   --cache-dir ./client-cache > events.ndjson
 ```
 
@@ -686,13 +719,13 @@ Built and verified: scraper, chunk-builder, orchestrator, storage abstraction
 **Browser-safe client (done).** The consumer library uses only web-standard APIs
 that also exist in Node 18+ — gzip via `DecompressionStream`, `Uint8Array` +
 `TextDecoder`/`TextEncoder` instead of `Buffer`, hex via `@noble`'s own utils — so
-`src/index.ts` bundles for the browser with no polyfills (a guard test asserts no
-`node:` imports in its graph). `@noble` stays (it is already isomorphic); native
+`packages/client/src/index.ts` bundles for the browser with no polyfills (a guard
+test asserts no `node:` imports in its graph). `@noble` stays (it is already isomorphic); native
 `crypto.subtle` was deemed unnecessary. The CLI, producer, and `DiskStore`/
 `GcsStore` remain Node-only by design.
 
 **Manifest signing (done, opt-in).** Detached Ed25519 over the raw `index.json`
-(§4.3 / §4.5 / §7.6). Producer signs when `MANIFEST_SIGNING_KEY` is set; consumer
+(§4.1 / §4.3 / §7.6). Producer signs when `MANIFEST_SIGNING_KEY` is set; consumer
 verifies when a `--public-key` is supplied.
 
 Not yet built (and where they slot in):

@@ -1,7 +1,7 @@
 # Deploying the scraper as a daily Cloud Run Job
 
 The orchestrator resumes from the **published manifest's `lastCoveredBlock`** (see
-`src/orchestrator/cli.ts`), so a run carries no durable local state — the GCS
+`packages/producer/src/orchestrator/cli.ts`), so a run carries no durable local state — the GCS
 bucket is both the output and the source of truth. That makes it a clean fit for
 scheduled, scale-to-zero batch:
 
@@ -49,7 +49,7 @@ Cloud Scheduler (daily cron)
    #    generate it ONCE and keep it stable forever (rotating breaks old-manifest
    #    verification). keygen prints MANIFEST_SIGNING_KEY (the secret) and
    #    PUBLIC_KEY (publish this; consumers pass it to --public-key).
-   node dist/keygen.js
+   node packages/producer/dist/keygen.js
    printf '%s' "0x<the-MANIFEST_SIGNING_KEY-value>" \
      | gcloud secrets create scraper-signing-key \
          --project "$PROJECT" --replication-policy=automatic --data-file=-
@@ -82,7 +82,7 @@ gcloud storage buckets add-iam-policy-binding gs://pp-state \
   --member=allUsers --role=roles/storage.objectViewer
 ```
 Caching is handled at write time: `GcsStore` sets per-object `Cache-Control` on
-every `put` (`cacheControlFor` in `src/storage/gcs-store.ts`): sealed chunks are
+every `put` (`cacheControlFor` in `packages/producer/src/storage/gcs-store.ts`): sealed chunks are
 digest-addressed and immutable → `public, max-age=31536000, immutable`;
 `index.json`/`index.json.sig`/the hot head mutate every run → `public,
 max-age=30`. These explicit headers override GCS's default 1-hour cache on

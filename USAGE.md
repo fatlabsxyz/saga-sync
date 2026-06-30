@@ -14,7 +14,7 @@ npm run build
 Run from the repo root, scrapes a small Tornado Cash range and emits the events as NDJSON on stdout:
 
 ```bash
-node dist/scraper/cli.js \
+node packages/producer/dist/scraper/cli.js \
   --config ./example-config.json \
   --protocol-id tornado-cash-1-eth-0.1 \
   --rpc https://ethereum-rpc.publicnode.com \
@@ -33,7 +33,7 @@ scraper: 2 event(s) for tornado-cash-1-eth-0.1 [0xc50101, 0xc50200] (dry-run: cu
 **Persist a cursor** (drop `--dry-run`) — next run with no `--from-block` resumes from `cursor + 1`:
 
 ```bash
-node dist/scraper/cli.js --config ./example-config.json --protocol-id tornado-cash-1-eth-0.1 \
+node packages/producer/dist/scraper/cli.js --config ./example-config.json --protocol-id tornado-cash-1-eth-0.1 \
   --rpc https://ethereum-rpc.publicnode.com --from-block 0xC50000 --to-block 0xC50100
 cat cursor.json   # → { "tornado-cash-1-eth-0.1": { "lastScrapedBlock": "0xc50100" } }
 ```
@@ -41,20 +41,20 @@ cat cursor.json   # → { "tornado-cash-1-eth-0.1": { "lastScrapedBlock": "0xc50
 **Scrape up to the chain's finalized block** (omit `--to-block`):
 
 ```bash
-node dist/scraper/cli.js --config ./example-config.json --protocol-id tornado-cash-1-eth-0.1 \
+node packages/producer/dist/scraper/cli.js --config ./example-config.json --protocol-id tornado-cash-1-eth-0.1 \
   --rpc https://ethereum-rpc.publicnode.com --from-block 0xC50101 --dry-run
 ```
 
 **Pipe to `jq` to inspect:**
 
 ```bash
-node dist/scraper/cli.js ... --dry-run | jq -c '{block: .blockNumber, topic: .eventTopic, tx: .transactionHash}'
+node packages/producer/dist/scraper/cli.js ... --dry-run | jq -c '{block: .blockNumber, topic: .eventTopic, tx: .transactionHash}'
 ```
 
 **Full flag list:**
 
 ```bash
-node dist/scraper/cli.js --help
+node packages/producer/dist/scraper/cli.js --help
 ```
 
 ## How cron would run it (manual approach)
@@ -62,9 +62,9 @@ node dist/scraper/cli.js --help
 For most cron deployments, prefer the **orchestrator** (see bottom of this file) — it handles every protocol and updates the manifest from one entry. The manual pipe shown here is useful if you want to run a single protocol with explicit block ranges or compose your own scheduling. Output goes to stdout, summary to stderr, exit code 0 on success / 1 on error — so it's safe to pipe stdout into the chunk builder:
 
 ```bash
-*/5 * * * * cd /path/to/repo && node dist/scraper/cli.js --config ./example-config.json \
+*/5 * * * * cd /path/to/repo && node packages/producer/dist/scraper/cli.js --config ./example-config.json \
   --protocol-id tornado-cash-1-eth-0.1 --rpc https://ethereum-rpc.publicnode.com \
-  | node dist/chunk-builder/cli.js --protocol-id tornado-cash-1-eth-0.1 \
+  | node packages/producer/dist/chunk-builder/cli.js --protocol-id tornado-cash-1-eth-0.1 \
       --from-block 0xC50101 --to-block 0xC50201 --output-dir ./chunks \
       >> /var/log/state.log 2>&1
 ```
@@ -80,9 +80,9 @@ the scanned block range into immutable `.jsonl.gz` chunks, and appends to a loca
 Pipe the scraper directly:
 
 ```bash
-node dist/scraper/cli.js --config ./example-config.json --protocol-id tornado-cash-1-eth-0.1 \
+node packages/producer/dist/scraper/cli.js --config ./example-config.json --protocol-id tornado-cash-1-eth-0.1 \
   --rpc https://ethereum-rpc.publicnode.com --from-block 0xC50101 --to-block 0xC50200 --dry-run \
-| node dist/chunk-builder/cli.js \
+| node packages/producer/dist/chunk-builder/cli.js \
     --protocol-id tornado-cash-1-eth-0.1 \
     --from-block 0xC50101 --to-block 0xC50201 \
     --output-dir ./chunks
@@ -129,7 +129,7 @@ Output:
 **Force multiple chunks** (set a small `--size-limit`):
 
 ```bash
-node dist/scraper/cli.js ... | node dist/chunk-builder/cli.js \
+node packages/producer/dist/scraper/cli.js ... | node packages/producer/dist/chunk-builder/cli.js \
   --protocol-id tornado-cash-1-eth-0.1 \
   --from-block 0xC50000 --to-block 0xC50501 \
   --output-dir ./chunks --size-limit 800
@@ -161,7 +161,7 @@ console.log(got === entry.digest.data ? 'OK' : 'MISMATCH', got);
 **Dry-run** (compute metadata, don't touch disk):
 
 ```bash
-node dist/scraper/cli.js ... --dry-run | node dist/chunk-builder/cli.js \
+node packages/producer/dist/scraper/cli.js ... --dry-run | node packages/producer/dist/chunk-builder/cli.js \
   --protocol-id tornado-cash-1-eth-0.1 \
   --from-block 0xC50101 --to-block 0xC50201 \
   --output-dir ./chunks --dry-run
@@ -173,7 +173,7 @@ covering the full `[from, to)`, so the manifest asserts the range was scanned.
 **Full flag list:**
 
 ```bash
-node dist/chunk-builder/cli.js --help
+node packages/producer/dist/chunk-builder/cli.js --help
 ```
 
 # Orchestrator CLI — usage
@@ -183,7 +183,7 @@ Top-level cron entry point. Loads every protocol from the config, computes each 
 ## Basic invocation
 
 ```bash
-node dist/orchestrator/cli.js \
+node packages/producer/dist/orchestrator/cli.js \
   --config ./example-config.json \
   --rpc https://ethereum-rpc.publicnode.com \
   --output-dir ./chunks
@@ -215,7 +215,7 @@ orchestrator: 1 ran, 0 skipped, 0 failed [tip 0x17f7802]
 ## Cron entry (daily)
 
 ```
-0 2 * * * cd /path/to/repo && node dist/orchestrator/cli.js \
+0 2 * * * cd /path/to/repo && node packages/producer/dist/orchestrator/cli.js \
   --config ./example-config.json \
   --rpc https://ethereum-rpc.publicnode.com \
   --output-dir ./chunks >> /var/log/orchestrator.log 2>&1
@@ -228,7 +228,7 @@ A single cron entry handles every protocol in the config. If a previous tick is 
 **Restrict to one protocol** (backfilling or ad-hoc reruns):
 
 ```bash
-node dist/orchestrator/cli.js \
+node packages/producer/dist/orchestrator/cli.js \
   --config ./example-config.json \
   --rpc https://ethereum-rpc.publicnode.com \
   --output-dir ./chunks \
@@ -240,7 +240,7 @@ The from-block is still derived from the manifest, so this catches that one prot
 **Dry-run** (compute the per-protocol ranges, don't touch disk):
 
 ```bash
-node dist/orchestrator/cli.js ... --dry-run
+node packages/producer/dist/orchestrator/cli.js ... --dry-run
 ```
 
 Prints what each protocol *would* scan; doesn't acquire the lockfile, so safe to run alongside a live cron.
@@ -270,7 +270,7 @@ console.log(got === hot.digest.data ? 'OK' : 'MISMATCH', got);
 **Full flag list:**
 
 ```bash
-node dist/orchestrator/cli.js --help
+node packages/producer/dist/orchestrator/cli.js --help
 ```
 
 ## Exit codes
