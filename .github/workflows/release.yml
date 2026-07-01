@@ -67,7 +67,7 @@ jobs:
 
       - name: Publish to npm
         if: startsWith(github.ref, 'refs/tags/v')
-        run: pnpm -r publish --access public --no-git-checks
+        run: NODE_AUTH_TOKEN="" pnpm -r publish --access public --no-git-checks
         # TOKEN FALLBACK (instead of Trusted Publishing): create a granular
         # automation token with write access to @saga-sync, store it as the
         # NPM_TOKEN repo secret, add `registry-url: "https://registry.npmjs.org"`
