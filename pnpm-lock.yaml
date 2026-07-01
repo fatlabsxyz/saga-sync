@@ -1,7 +1,7 @@
 lockfileVersion: '9.0'
 
 settings:
-  autoInstallPeers: true
+  autoInstallPeers: false
   excludeLinksFromLockfile: false
 
 importers:
@@ -11,9 +11,6 @@ importers:
       '@google-cloud/storage':
         specifier: ^7.19.0
         version: 7.21.0
-      '@saga-sync/core':
-        specifier: workspace:*
-        version: link:packages/core
     devDependencies:
       '@types/node':
         specifier: ^20.16.5
