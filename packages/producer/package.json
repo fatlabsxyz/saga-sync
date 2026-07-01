@@ -1,6 +1,6 @@
 {
   "name": "@saga-sync/producer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Producer side of saga-sync: scraper, chunk-builder, orchestrator, and cloud stores",
   "license": "UNLICENSED",
   "repository": {
