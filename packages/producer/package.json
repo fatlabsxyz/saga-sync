@@ -1,0 +1,44 @@
+{
+  "name": "@saga-sync/producer",
+  "version": "0.1.0",
+  "description": "Producer side of saga-sync: scraper, chunk-builder, orchestrator, and cloud stores",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fatlabsxyz/privacy-protocol-state-distribution.git",
+    "directory": "packages/producer"
+  },
+  "homepage": "https://github.com/fatlabsxyz/privacy-protocol-state-distribution/tree/master/packages/producer#readme",
+  "bugs": "https://github.com/fatlabsxyz/privacy-protocol-state-distribution/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./chunk-builder/archive": {
+      "types": "./dist/chunk-builder/archive.d.ts",
+      "default": "./dist/chunk-builder/archive.js"
+    }
+  },
+  "bin": {
+    "scraper": "dist/scraper/cli.js",
+    "chunk-builder": "dist/chunk-builder/cli.js",
+    "orchestrator": "dist/orchestrator/cli.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@saga-sync/core": "workspace:*",
+    "viem": "^2.21.0",
+    "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "@google-cloud/storage": "^7.19.0"
+  }
+}

@@ -1,7 +1,7 @@
 # Deploying the scraper as a daily Cloud Run Job
 
 The orchestrator resumes from the **published manifest's `lastCoveredBlock`** (see
-`src/orchestrator/cli.ts`), so a run carries no durable local state — the GCS
+`packages/producer/src/orchestrator/cli.ts`), so a run carries no durable local state — the GCS
 bucket is both the output and the source of truth. That makes it a clean fit for
 scheduled, scale-to-zero batch:
 
@@ -18,7 +18,7 @@ Cloud Scheduler (daily cron)
 
 | File | Role |
 |---|---|
-| `Dockerfile` | Multi-stage build → slim runtime image (`npm ci --omit=dev` keeps the optional GCS SDK). |
+| `Dockerfile` | Multi-stage build → slim runtime image (`pnpm install --prod` keeps the optional GCS SDK). |
 | `docker/entrypoint.sh` | Fetches config from GCS, then runs the orchestrator → `gs://BUCKET`. No `--lock-dir` (single-execution scheduling is the guard). |
 | `docker/fetch-config.mjs` | Downloads `CONFIG_URI` to `/tmp/config.json` via the same ADC the orchestrator uses. |
 | `publish-config.json` | The three protocols (privacy-pools, tornado, railgun). Uploaded to the bucket; **not** baked into the image, so the protocol set changes without a rebuild. |
@@ -49,7 +49,7 @@ Cloud Scheduler (daily cron)
    #    generate it ONCE and keep it stable forever (rotating breaks old-manifest
    #    verification). keygen prints MANIFEST_SIGNING_KEY (the secret) and
    #    PUBLIC_KEY (publish this; consumers pass it to --public-key).
-   node dist/keygen.js
+   node packages/producer/dist/keygen.js
    printf '%s' "0x<the-MANIFEST_SIGNING_KEY-value>" \
      | gcloud secrets create scraper-signing-key \
          --project "$PROJECT" --replication-policy=automatic --data-file=-
@@ -73,22 +73,43 @@ Cloud Scheduler (daily cron)
    gcloud storage ls -l gs://pp-state/**
    ```
 
-## Serving + caching caveat
+## Serving + caching
 
-For an MVP, make the bucket public-read and consumers fetch
-`https://storage.googleapis.com/$BUCKET/index.json`:
+The bucket is public-read and the canonical read endpoint is **Cloud CDN** in
+front of it. Make the bucket public once:
 ```sh
 gcloud storage buckets add-iam-policy-binding gs://pp-state \
   --member=allUsers --role=roles/storage.objectViewer
 ```
-Caching is already handled at write time: `GcsStore` sets per-object
-`Cache-Control` on every `put` (`cacheControlFor` in `src/storage/gcs-store.ts`):
-sealed chunks are digest-addressed and immutable → `public, max-age=31536000,
-immutable`; `index.json`/`index.json.sig`/the hot head mutate every run →
-`public, max-age=30`. These explicit headers override GCS's default 1-hour
-cache on public objects, so a fresh manifest is visible within ~30s. If you put
-**Cloud CDN** in front, configure it to **respect origin headers** (cache mode
-`USE_ORIGIN_HEADERS`) so it honours this split rather than imposing its own TTL.
+Caching is handled at write time: `GcsStore` sets per-object `Cache-Control` on
+every `put` (`cacheControlFor` in `packages/producer/src/storage/gcs-store.ts`): sealed chunks are
+digest-addressed and immutable → `public, max-age=31536000, immutable`;
+`index.json`/`index.json.sig`/the hot head mutate every run → `public,
+max-age=30`. These explicit headers override GCS's default 1-hour cache on
+public objects, so a fresh manifest is visible within ~30s.
+
+### Cloud CDN (`deploy/cdn.sh`)
+Provision an external HTTP load balancer with a CDN-enabled backend bucket:
+```sh
+PROJECT=privacy-protocols BUCKET=pp-state ./deploy/cdn.sh
+```
+The script is idempotent (describe-then-create) and prints the canonical
+endpoint `http://<lb-ip>/index.json` on completion. It sets cache mode
+**`USE_ORIGIN_HEADERS`** so Cloud CDN honours the immutable/short-TTL split above
+rather than imposing one blanket TTL. The load balancer adds no auth — it reads
+the public bucket as its origin.
+
+**No TLS / no domain by design.** Integrity is guaranteed by the signed manifest
++ content-hash-verified chunks (the client enforces both regardless of
+transport), and the payload is public on-chain data — so plain HTTP on the
+anycast IP is sufficient. To front it with a custom domain over HTTPS later, add
+a Google-managed cert + `target-https-proxy` + a `:443` forwarding rule pointed
+at the same reserved IP; nothing else changes.
+
+Once provisioned, point the deploy/publish scripts at it by exporting
+`CDN_BASE=http://<lb-ip>/` — `publish.sh` and `deploy/cloud-run-job.sh` then
+print that as the consumer read URL. The client CLI takes the endpoint as its
+`<manifest-url>` argument, so there's no hardcoded URL to change in code.
 
 ## Operability
 
