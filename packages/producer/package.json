@@ -1,15 +1,15 @@
 {
   "name": "@saga-sync/producer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Producer side of saga-sync: scraper, chunk-builder, orchestrator, and cloud stores",
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fatlabsxyz/privacy-protocol-state-distribution.git",
+    "url": "https://github.com/fatlabsxyz/saga-sync.git",
     "directory": "packages/producer"
   },
-  "homepage": "https://github.com/fatlabsxyz/privacy-protocol-state-distribution/tree/master/packages/producer#readme",
-  "bugs": "https://github.com/fatlabsxyz/privacy-protocol-state-distribution/issues",
+  "homepage": "https://github.com/fatlabsxyz/saga-sync/tree/master/packages/producer#readme",
+  "bugs": "https://github.com/fatlabsxyz/saga-sync/issues",
   "publishConfig": {
     "access": "public"
   },

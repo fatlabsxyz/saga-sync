@@ -1,15 +1,15 @@
 {
   "name": "@saga-sync/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Shared kernel for saga-sync: manifest schema, crypto, and dependency-free stores",
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fatlabsxyz/privacy-protocol-state-distribution.git",
+    "url": "https://github.com/fatlabsxyz/saga-sync.git",
     "directory": "packages/core"
   },
-  "homepage": "https://github.com/fatlabsxyz/privacy-protocol-state-distribution/tree/master/packages/core#readme",
-  "bugs": "https://github.com/fatlabsxyz/privacy-protocol-state-distribution/issues",
+  "homepage": "https://github.com/fatlabsxyz/saga-sync/tree/master/packages/core#readme",
+  "bugs": "https://github.com/fatlabsxyz/saga-sync/issues",
   "publishConfig": {
     "access": "public"
   },
