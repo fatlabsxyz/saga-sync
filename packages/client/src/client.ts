@@ -61,6 +61,16 @@ export class Client {
     return opts.hot ? fetchChunkFrom(this.source, meta) : this.fetchSealed(meta);
   }
 
+  // Layer 1.5: discover the protocol streams a manifest publishes. Streams are
+  // granular per-pool (e.g. "tornado-cash-1-eth-0.1", "tornado-cash-1-dai-100"),
+  // so passing the family prefix "tornado-cash-1" returns every denomination's
+  // id — the enumeration a consumer needs before it can pick or fan out over
+  // streamEvents. Omit `prefix` to list everything; result is sorted.
+  async listProtocols(prefix?: string): Promise<string[]> {
+    const ids = (await this.fetchManifest()).protocolIds();
+    return (prefix === undefined ? ids : ids.filter((id) => matchesFamily(id, prefix))).sort();
+  }
+
   // Layer 3: merged event stream for a protocol. Yields events in block order
   // across all sealed chunks in the optional [fromBlock, toBlock) window,
   // then the hot head (re-fetched every call, never cached).
@@ -116,4 +126,11 @@ export class Client {
       yield events;
     }
   }
+}
+
+// A protocol id belongs to a family if it equals the prefix or extends it by a
+// "-" segment, so "tornado-cash-1" matches "tornado-cash-1-eth-0.1" but not an
+// unrelated id that merely starts with the same characters.
+function matchesFamily(id: string, prefix: string): boolean {
+  return id === prefix || id.startsWith(`${prefix}-`);
 }

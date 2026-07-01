@@ -225,4 +225,56 @@ describe("Client", () => {
       await expect(client.fetchManifest()).rejects.toThrow(ManifestSignatureError);
     });
   });
+
+  describe("listProtocols", () => {
+    // Publish one sealed chunk under each id so the manifest advertises them.
+    async function publishIds(store: Store, ids: string[]): Promise<void> {
+      const archive = new ChunkArchive(store);
+      const manifest = await Manifest.load(store);
+      for (const id of ids) {
+        const meta = await archive.seal(id, [event(1n)], { from: 1n, to: 2n });
+        await manifest.appendChunk(id, meta);
+      }
+    }
+
+    it("lists every published protocol id, sorted, when no prefix is given", async () => {
+      await publishIds(source, ["tornado-cash-1-eth-1", "railgun-1-main", "tornado-cash-1-dai-100"]);
+      const client = new Client({ source });
+      expect(await client.listProtocols()).toEqual([
+        "railgun-1-main",
+        "tornado-cash-1-dai-100",
+        "tornado-cash-1-eth-1",
+      ]);
+    });
+
+    it("narrows to a protocol family by prefix", async () => {
+      await publishIds(source, [
+        "tornado-cash-1-eth-0.1",
+        "tornado-cash-1-dai-100",
+        "privacy-pools-1-eth",
+        "railgun-1-main",
+      ]);
+      const client = new Client({ source });
+      expect(await client.listProtocols("tornado-cash-1")).toEqual([
+        "tornado-cash-1-dai-100",
+        "tornado-cash-1-eth-0.1",
+      ]);
+    });
+
+    it("matches an exact id but not an unrelated id sharing a character prefix", async () => {
+      // "tornado-cash-10" must not be captured by the "tornado-cash-1" family.
+      await publishIds(source, ["tornado-cash-1", "tornado-cash-1-eth-1", "tornado-cash-10-eth-1"]);
+      const client = new Client({ source });
+      expect(await client.listProtocols("tornado-cash-1")).toEqual([
+        "tornado-cash-1",
+        "tornado-cash-1-eth-1",
+      ]);
+    });
+
+    it("returns an empty list when no id matches the prefix", async () => {
+      await publishIds(source, ["railgun-1-main"]);
+      const client = new Client({ source });
+      expect(await client.listProtocols("tornado-cash-1")).toEqual([]);
+    });
+  });
 });

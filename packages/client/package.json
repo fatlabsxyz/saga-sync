@@ -2,6 +2,17 @@
   "name": "@saga-sync/client",
   "version": "0.1.0",
   "description": "Consumer library + CLI for saga-sync: fetch, verify, and stream published privacy-protocol state",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fatlabsxyz/privacy-protocol-state-distribution.git",
+    "directory": "packages/client"
+  },
+  "homepage": "https://github.com/fatlabsxyz/privacy-protocol-state-distribution/tree/master/packages/client#readme",
+  "bugs": "https://github.com/fatlabsxyz/privacy-protocol-state-distribution/issues",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "exports": {
     ".": {

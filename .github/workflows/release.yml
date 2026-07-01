@@ -1,0 +1,76 @@
+name: release
+
+# Publishes @saga-sync/{core,client,producer} to npm.
+#
+# Trigger: push a tag `vX.Y.Z` whose version matches all three package.json
+# versions (bump them in lockstep first, then tag). `workflow_dispatch` runs a
+# publish dry-run so you can preview tarball contents without releasing.
+#
+# Auth: npm Trusted Publishing (OIDC) — no secret needed. The scope owner must
+# register this repo + workflow (release.yml) as a trusted publisher for each
+# @saga-sync/* package on npmjs.com.
+# Token fallback: see the commented lines on the publish step.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack and preview without publishing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # OIDC token exchange for Trusted Publishing auth
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable corepack (uses the pnpm version pinned in package.json)
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Verify tag matches package versions
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for pkg in core client producer; do
+            v=$(node -p "require('./packages/$pkg/package.json').version")
+            if [ "$v" != "$tag" ]; then
+              echo "::error::tag v$tag does not match @saga-sync/$pkg@$v"
+              exit 1
+            fi
+          done
+          echo "All three packages are at $tag"
+
+      - name: Publish dry-run
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: pnpm -r publish --dry-run --access public --no-git-checks
+
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: pnpm -r publish --access public --no-git-checks
+        # TOKEN FALLBACK (instead of Trusted Publishing): create a granular
+        # automation token with write access to @saga-sync, store it as the
+        # NPM_TOKEN repo secret, add `registry-url: "https://registry.npmjs.org"`
+        # to the setup-node step above, and uncomment:
+        # env:
+        #   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
