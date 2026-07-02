@@ -14,8 +14,13 @@ TAG="${TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo latest)}"
 BUILD="${BUILD:-cloud}"                                  # cloud | local | skip
 
 BUCKET="${BUCKET:?set BUCKET=your-state-bucket (output; e.g. pp-state)}"
-OUTPUT_URI="gs://$BUCKET"
+# Overridable so a second chain can write under a prefix (e.g. gs://pp-state/sepolia).
+OUTPUT_URI="${OUTPUT_URI:-gs://$BUCKET}"
 CONFIG_URI="${CONFIG_URI:-gs://$BUCKET/publish-config.json}"
+# Local config file uploaded to CONFIG_URI, and the RPC secret bound as $RPC.
+# Override both (with JOB/SCHED/OUTPUT_URI/CONFIG_URI) to deploy another chain.
+CONFIG_FILE="${CONFIG_FILE:-./publish-config.json}"
+RPC_SECRET="${RPC_SECRET:-scraper-rpc}"
 
 JOB="${JOB:-scraper-daily}"
 SCHED="${SCHED:-scraper-daily}"
@@ -80,7 +85,7 @@ gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" \
 
 echo "==> secret access for the job SA"
 MISSING=0
-for S in scraper-rpc scraper-signing-key; do
+for S in "$RPC_SECRET" scraper-signing-key; do
   if gcloud secrets describe "$S" --project "$PROJECT" >/dev/null 2>&1; then
     gcloud secrets add-iam-policy-binding "$S" --project "$PROJECT" \
       --member "serviceAccount:$SA" --role roles/secretmanager.secretAccessor >/dev/null
@@ -92,7 +97,7 @@ done
 [ "$MISSING" = 1 ] && exit 1
 
 echo "==> upload config to the bucket"
-gcloud storage cp ./publish-config.json "$CONFIG_URI"
+gcloud storage cp "$CONFIG_FILE" "$CONFIG_URI"
 
 echo "==> Cloud Run Job ($JOB)"
 JOB_FLAGS=(
@@ -100,7 +105,7 @@ JOB_FLAGS=(
   --image "$IMAGE:$TAG"
   --service-account "$SA"
   --set-env-vars "CONFIG_URI=$CONFIG_URI,OUTPUT_URI=$OUTPUT_URI"
-  --set-secrets "RPC=scraper-rpc:latest,MANIFEST_SIGNING_KEY=scraper-signing-key:latest"
+  --set-secrets "RPC=$RPC_SECRET:latest,MANIFEST_SIGNING_KEY=scraper-signing-key:latest"
   # The orchestrator scrapes protocols in parallel (default --concurrency 4).
   # Each in-flight protocol buffers up to ~10 MiB, so give the job headroom;
   # raise memory and concurrency together (and mind the RPC rate limit) to go
