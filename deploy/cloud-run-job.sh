@@ -101,7 +101,11 @@ JOB_FLAGS=(
   --service-account "$SA"
   --set-env-vars "CONFIG_URI=$CONFIG_URI,OUTPUT_URI=$OUTPUT_URI"
   --set-secrets "RPC=scraper-rpc:latest,MANIFEST_SIGNING_KEY=scraper-signing-key:latest"
-  --memory 512Mi --cpu 1
+  # The orchestrator scrapes protocols in parallel (default --concurrency 4).
+  # Each in-flight protocol buffers up to ~10 MiB, so give the job headroom;
+  # raise memory and concurrency together (and mind the RPC rate limit) to go
+  # faster. Pass a different value by appending `--args=--concurrency=N` here.
+  --memory 1Gi --cpu 1
   --task-timeout 1800 --max-retries 1
 )
 if gcloud run jobs describe "$JOB" --project "$PROJECT" --region "$REGION" >/dev/null 2>&1; then

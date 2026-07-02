@@ -82,6 +82,16 @@ function parseCliArgs() {
   };
 }
 
+// Build the JSON-RPC client used for scraping. `batch` coalesces the many
+// concurrent eth_getLogs (multiple protocols and event filters in flight under
+// --concurrency) into batched HTTP calls, and viem's transport retries transient
+// failures — including provider rate-limit (429) and 5xx — with backoff.
+export function createRpcClient(rpc: string): PublicClient {
+  return createPublicClient({
+    transport: http(rpc, { batch: true, retryCount: 5, retryDelay: 250 }),
+  });
+}
+
 // The chain's own finalized block — reorg-proof, no per-chain table needed.
 // Returns null if the RPC/chain does not support the "finalized" tag, which
 // triggers the --confirmations fallback in step 2.
@@ -116,7 +126,7 @@ async function main(): Promise<void> {
   const cursor = await Cursor.load(cursorStore);
 
   // 1. Connect to the RPC (and verify it is on the chain the config declares)
-  const client = createPublicClient({ transport: http(args.rpc) });
+  const client = createRpcClient(args.rpc);
   await assertChainId(client, config.chainId);
 
   // 2. Resolve the block range to scan

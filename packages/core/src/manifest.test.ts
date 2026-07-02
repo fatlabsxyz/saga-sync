@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DiskStore } from "./disk-store.js";
 import { Manifest } from "./manifest.js";
 import type { ChunkMeta } from "./manifest.js";
+import type { Store } from "./store.js";
 import { generateKeyPair, signManifest, verifyManifestSignature } from "./signing.js";
 
 const meta = (overrides: Partial<ChunkMeta> = {}): ChunkMeta => ({
@@ -74,6 +75,19 @@ describe("Manifest", () => {
     await m.appendChunk("proto-a", meta({ fromBlock: "0x2" }));
     await m.appendChunk("proto-a", meta({ fromBlock: "0x3" }));
     expect(m.sealedChunks("proto-a").map((c) => c.fromBlock)).toEqual(["0x1", "0x2", "0x3"]);
+  });
+
+  it("serializes protocol keys sorted, regardless of write order", async () => {
+    const m = await Manifest.load(store);
+    await m.appendChunk("proto-c", meta());
+    await m.appendChunk("proto-a", meta());
+    await m.appendChunk("proto-b", meta());
+    await m.setHotHead("proto-c", meta());
+    await m.setHotHead("proto-a", meta());
+    const raw = new TextDecoder().decode((await store.get("index.json"))!);
+    const parsed = JSON.parse(raw);
+    expect(Object.keys(parsed.availableStates)).toEqual(["proto-a", "proto-b", "proto-c"]);
+    expect(Object.keys(parsed.hotHeads)).toEqual(["proto-a", "proto-c"]);
   });
 
   it("setHotHead stores one mutable entry per protocol; clearHotHead removes it", async () => {
@@ -211,7 +225,7 @@ describe("Manifest", () => {
       expect(manifestBytes).not.toBeNull();
       expect(sig).not.toBeNull();
       expect(() =>
-        verifyManifestSignature(manifestBytes!, sig!.toString("utf8").trim(), publicKey),
+        verifyManifestSignature(manifestBytes!, new TextDecoder().decode(sig!).trim(), publicKey),
       ).not.toThrow();
     });
 
@@ -231,8 +245,60 @@ describe("Manifest", () => {
       const manifestBytes = await store.get("index.json");
       const sig = await store.get("index.json.sig");
       expect(() =>
-        verifyManifestSignature(manifestBytes!, sig!.toString("utf8").trim(), publicKey),
+        verifyManifestSignature(manifestBytes!, new TextDecoder().decode(sig!).trim(), publicKey),
       ).not.toThrow();
+    });
+  });
+
+  describe("concurrent writes", () => {
+    // A store whose put() completions are staggered in REVERSE issue order — the
+    // first put issued finishes last. Without serialization this would let an
+    // early, smaller manifest snapshot land last and clobber later updates; it
+    // is exactly the interleave that protocols scraped in parallel would hit.
+    class ReorderingStore implements Store {
+      readonly data = new Map<string, Uint8Array>();
+      private n = 0;
+      async put(key: string, bytes: Uint8Array): Promise<void> {
+        const delay = Math.max(0, 60 - this.n++ * 8);
+        await new Promise((r) => setTimeout(r, delay));
+        this.data.set(key, Uint8Array.from(bytes));
+      }
+      async get(key: string): Promise<Uint8Array | null> {
+        return this.data.get(key) ?? null;
+      }
+      async delete(key: string): Promise<void> {
+        this.data.delete(key);
+      }
+      async list(prefix: string): Promise<string[]> {
+        return [...this.data.keys()].filter((k) => k.startsWith(prefix));
+      }
+    }
+
+    it("serializes concurrent appendChunk so no update is lost", async () => {
+      const store = new ReorderingStore();
+      const m = await Manifest.load(store);
+      const ids = Array.from({ length: 8 }, (_, i) => `proto-${i}`);
+      await Promise.all(ids.map((id) => m.appendChunk(id, meta({ file: `${id}.jsonl.gz` }))));
+
+      const reloaded = (await Manifest.load(store)).snapshot();
+      for (const id of ids) {
+        expect(reloaded.availableStates[id], `${id} should survive`).toHaveLength(1);
+      }
+    });
+
+    it("keeps index.json and its signature consistent under concurrency", async () => {
+      const store = new ReorderingStore();
+      const { secretKey, publicKey } = generateKeyPair();
+      const m = await Manifest.load(store, undefined, {
+        signer: (bytes) => signManifest(bytes, secretKey),
+      });
+      await Promise.all(
+        Array.from({ length: 6 }, (_, i) => m.appendChunk(`p-${i}`, meta({ file: `p-${i}.gz` }))),
+      );
+
+      const body = (await store.get("index.json"))!;
+      const sig = new TextDecoder().decode((await store.get("index.json.sig"))!).trim();
+      expect(() => verifyManifestSignature(body, sig, publicKey)).not.toThrow();
     });
   });
 });

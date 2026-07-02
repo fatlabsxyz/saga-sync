@@ -44,6 +44,12 @@ export type ManifestLoadOptions = {
   signer?: ManifestSigner;
 };
 
+// Re-key an object with its keys sorted, so serialized output does not depend on
+// insertion order (which, under parallel scraping, is nondeterministic).
+function sortKeys<T>(obj: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(Object.keys(obj).sort().map((k) => [k, obj[k]!]));
+}
+
 export class Manifest {
   private signer?: ManifestSigner;
 
@@ -182,30 +188,60 @@ export class Manifest {
 
   // --- mutations (each persists atomically via the Store) ---
 
-  async appendChunk(protocolId: string, entry: ChunkMeta): Promise<void> {
-    const list = this.data.availableStates[protocolId] ?? [];
-    list.push(entry);
-    this.data.availableStates[protocolId] = list;
-    await this.persist();
+  // Serialize every mutation through a promise chain. `persist()` rewrites the
+  // whole manifest (+ detached signature) on each call, so concurrent callers —
+  // e.g. protocols scraped in parallel, each appending to a different key —
+  // could otherwise interleave their async `store.put`s and land an older
+  // snapshot last (lost update) or pair the manifest with a stale signature.
+  // Running the in-memory change and its persist inside a chained critical
+  // section keeps writes ordered; sequential callers see the same behavior
+  // (queue depth 1). `mutate` returns false to skip a redundant persist (no-op).
+  private writeQueue: Promise<void> = Promise.resolve();
+
+  private enqueue(mutate: () => boolean): Promise<void> {
+    const run = this.writeQueue.then(async () => {
+      if (mutate()) await this.persist();
+    });
+    // Keep the chain alive even if one write rejects, so later writes still run.
+    this.writeQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
-  async setHotHead(protocolId: string, entry: ChunkMeta): Promise<void> {
-    const hotHeads = this.data.hotHeads ?? {};
-    hotHeads[protocolId] = entry;
-    this.data.hotHeads = hotHeads;
-    await this.persist();
+  appendChunk(protocolId: string, entry: ChunkMeta): Promise<void> {
+    return this.enqueue(() => {
+      const list = this.data.availableStates[protocolId] ?? [];
+      list.push(entry);
+      this.data.availableStates[protocolId] = list;
+      return true;
+    });
   }
 
-  async clearHotHead(protocolId: string): Promise<void> {
-    if (!this.data.hotHeads || !(protocolId in this.data.hotHeads)) return;
-    delete this.data.hotHeads[protocolId];
-    if (Object.keys(this.data.hotHeads).length === 0) delete this.data.hotHeads;
-    await this.persist();
+  setHotHead(protocolId: string, entry: ChunkMeta): Promise<void> {
+    return this.enqueue(() => {
+      const hotHeads = this.data.hotHeads ?? {};
+      hotHeads[protocolId] = entry;
+      this.data.hotHeads = hotHeads;
+      return true;
+    });
+  }
+
+  clearHotHead(protocolId: string): Promise<void> {
+    return this.enqueue(() => {
+      if (!this.data.hotHeads || !(protocolId in this.data.hotHeads)) return false;
+      delete this.data.hotHeads[protocolId];
+      if (Object.keys(this.data.hotHeads).length === 0) delete this.data.hotHeads;
+      return true;
+    });
   }
 
   private async persist(): Promise<void> {
     // Stamp the writer's version + a fresh timestamp on every write, and emit a
-    // stable key order (metadata first) so the bytes are predictable.
+    // stable key order (metadata first, protocol keys sorted) so the bytes are
+    // predictable — the manifest is byte-identical regardless of the order
+    // protocols were written, so parallel scraping produces reproducible output.
     this.data.version = MANIFEST_VERSION;
     this.data.compression = "gzip";
     this.data.updatedAt = new Date().toISOString();
@@ -213,8 +249,8 @@ export class Manifest {
       version: this.data.version,
       updatedAt: this.data.updatedAt,
       compression: this.data.compression,
-      availableStates: this.data.availableStates,
-      ...(this.data.hotHeads ? { hotHeads: this.data.hotHeads } : {}),
+      availableStates: sortKeys(this.data.availableStates),
+      ...(this.data.hotHeads ? { hotHeads: sortKeys(this.data.hotHeads) } : {}),
     };
     const bytes = new TextEncoder().encode(JSON.stringify(ordered, null, 2) + "\n");
     await this.store.put(this.key, bytes);
