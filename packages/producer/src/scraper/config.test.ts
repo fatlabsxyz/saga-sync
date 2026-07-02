@@ -52,6 +52,33 @@ describe("loadConfig", () => {
     expect(loadConfig(path, "p-1-x").events[0].filter).toEqual([`0x${"c".repeat(64)}`]);
   });
 
+  it("carries protocol + protocolMetadata and derives unique trackedAddresses", () => {
+    const addrA = `0x${"a".repeat(40)}`;
+    const addrB = `0x${"e".repeat(40)}`;
+    const cfg: any = validConfig();
+    cfg.protocols["p-1-x"].protocol = "tornado-cash";
+    cfg.protocols["p-1-x"].protocolMetadata = { denomination: "100", asset: "ETH" };
+    // Two events on addrA (same address) + one on addrB → deduped, config order.
+    cfg.protocols["p-1-x"].events = [
+      { contractAddress: addrA, eventTopic: `0x${"b".repeat(64)}` },
+      { contractAddress: addrA, eventTopic: `0x${"c".repeat(64)}` },
+      { contractAddress: addrB, eventTopic: `0x${"b".repeat(64)}` },
+    ];
+    write(cfg);
+    const t = loadConfig(path, "p-1-x");
+    expect(t.protocol).toBe("tornado-cash");
+    expect(t.protocolMetadata).toEqual({ denomination: "100", asset: "ETH" });
+    expect(t.trackedAddresses).toEqual([addrA, addrB]);
+  });
+
+  it("omits protocol/protocolMetadata when absent but always derives trackedAddresses", () => {
+    write(validConfig());
+    const t = loadConfig(path, "p-1-x");
+    expect(t.protocol).toBeUndefined();
+    expect(t.protocolMetadata).toBeUndefined();
+    expect(t.trackedAddresses).toEqual([`0x${"a".repeat(40)}`]);
+  });
+
   it("throws when fromBlock is missing", () => {
     const cfg: any = validConfig();
     delete cfg.protocols["p-1-x"].fromBlock;

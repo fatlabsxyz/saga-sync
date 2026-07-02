@@ -104,19 +104,26 @@ Output:
 
 ```json
 {
-  "availableStates": {
-    "tornado-cash-1-eth-0.1": [
-      {
-        "fromBlock": "0xc50101",
-        "toBlock": "0xc50201",
-        "file": "tornado-cash-1-eth-0.1-[0xc50101,0xc50201).jsonl.gz",
-        "size": "0x23e",
-        "digest": {
-          "type": "blake3",
-          "data": "0xa757e92468fa95659cf0189440207540a5f9363b44d8d1b6a652af7acb49a48e"
+  "version": 2,
+  "availableProtocols": {
+    "tornado-cash-1-eth-0.1": {
+      "protocol": "tornado-cash",
+      "protocolMetadata": { "denomination": "100000000000000000", "asset": "ETH" },
+      "chainId": "0x1",
+      "trackedAddresses": ["0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc"],
+      "chunks": [
+        {
+          "fromBlock": "0xc50101",
+          "toBlock": "0xc50201",
+          "file": "tornado-cash-1-eth-0.1-[0xc50101,0xc50201).jsonl.gz",
+          "size": "0x23e",
+          "digest": {
+            "type": "sha256",
+            "data": "0xa757e92468fa95659cf0189440207540a5f9363b44d8d1b6a652af7acb49a48e"
+          }
         }
-      }
-    ]
+      ]
+    }
   }
 }
 ```
@@ -151,7 +158,7 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { gunzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 const idx = JSON.parse(readFileSync('./chunks/index.json', 'utf8'));
-const entry = idx.availableStates['tornado-cash-1-eth-0.1'][0];
+const entry = idx.availableProtocols['tornado-cash-1-eth-0.1'].chunks[0];
 const data = gunzipSync(readFileSync('./chunks/' + entry.file));
 const got = '0x' + Buffer.from(blake3(data)).toString('hex');
 console.log(got === entry.digest.data ? 'OK' : 'MISMATCH', got);
@@ -259,7 +266,7 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { gunzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 const idx = JSON.parse(readFileSync('./chunks/index.json', 'utf8'));
-const hot = idx.hotHeads?.['tornado-cash-1-eth-0.1'];
+const hot = idx.availableProtocols?.['tornado-cash-1-eth-0.1']?.hotHead;
 if (!hot) { console.log('no hot head'); process.exit(0); }
 const data = gunzipSync(readFileSync('./chunks/' + hot.file));
 const got = '0x' + Buffer.from(blake3(data)).toString('hex');

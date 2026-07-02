@@ -72,6 +72,7 @@ async function publish(
     await manifest.setHotHead(PID, meta);
     all.push(...hot.events);
   }
+  await manifest.flush();
   return all;
 }
 
@@ -235,6 +236,7 @@ describe("Client", () => {
         const meta = await archive.seal(id, [event(1n)], { from: 1n, to: 2n });
         await manifest.appendChunk(id, meta);
       }
+      await manifest.flush();
     }
 
     it("lists every published protocol id, sorted, when no prefix is given", async () => {

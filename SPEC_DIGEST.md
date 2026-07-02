@@ -51,12 +51,21 @@ Comparison of the newly-added `SPEC.md` (Draft v0.1.0) against the current code
 - **`compression` field → GAP (cheap) / KEEP behavior.** gzip is hardcoded; the
   field is absent. Adding `"compression":"gzip"` documents reality for free even
   if we never implement `"none"`.
-- **`availableStates[key]` array vs object → DOC/KEEP.** We split sealed
-  (`availableStates`) from the mutable tail (`hotHeads`) rather than flagging the
-  last entry `settled:false`. Cleaner for our single-writer model; spec should
-  describe both shapes or adopt ours. The spec's per-instance `startBlock` /
-  `updatedAtBlock` we currently *derive* (`firstCoveredBlock` / `lastCoveredBlock`)
-  rather than store.
+- **`availableStates[key]` array vs object → RESOLVED (2026-07-02, manifest v2).**
+  The shape is now a per-stream **object** `availableProtocols[key] = { protocol,
+  protocolMetadata, chainId, trackedAddresses, chunks[], hotHead? }`, which matches
+  the spec's per-instance-object direction. SPEC §3.1 was rewritten to this shape
+  (both updated together). `MANIFEST_VERSION = 2`; v1 (`availableStates`/`hotHeads`)
+  is still read and migrated on load. The mutable tail moved from a top-level
+  `hotHeads` map into each entry's `hotHead` field. `protocolMetadata` is a
+  config-carried passthrough whose keys are **immutable per stream** (written once,
+  never overwritten). `startBlock`/`updatedAtBlock` are still *derived*
+  (`firstCoveredBlock`/`lastCoveredBlock`), not stored.
+- **Manifest write path (2026-07-02).** Writes are **coalesced + throttled** to
+  ≤~1/sec and serialized (mutations update memory + a `flush()` guarantees
+  durability at end of run), and `availableProtocols` keys are serialized sorted —
+  both to stay under GCS's ~1-write/sec/object limit and to keep bytes
+  order-independent under parallel scraping. `GcsStore.put` also retries 429s.
 - **Digest encoding → DOC.** `sha256:hex` vs `{type,data:0x…}` is the same
   information. Our `{type}` object is more extensible; reconcile wording.
 

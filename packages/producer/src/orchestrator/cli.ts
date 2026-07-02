@@ -366,6 +366,12 @@ async function main(): Promise<void> {
     }
 
     try {
+      await manifest.setProtocolMeta(protocolId, {
+        protocol: protocol.protocol,
+        protocolMetadata: protocol.protocolMetadata,
+        chainId: protocol.chainId,
+        trackedAddresses: protocol.trackedAddresses,
+      });
       const result = await processProtocol({
         client,
         protocolId,
@@ -402,6 +408,10 @@ async function main(): Promise<void> {
     else if (outcome === "skipped") skipped += 1;
     else failed += 1;
   });
+
+  // Flush the coalesced manifest writer: mutations only scheduled throttled
+  // writes, so this guarantees the final state is durable before we exit.
+  await manifest.flush();
 
   process.stderr.write(
     `orchestrator: ${ran} ran, ${skipped} skipped, ${failed} failed [tip ${numberToHex(tip)}]` +

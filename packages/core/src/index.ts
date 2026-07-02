@@ -10,7 +10,13 @@ export { HttpStore } from "./http-store.js";
 export type { CanonicalEvent } from "./events.js";
 
 export { Manifest, MANIFEST_VERSION } from "./manifest.js";
-export type { ChunkMeta, ManifestData, ManifestLoadOptions } from "./manifest.js";
+export type {
+  ChunkMeta,
+  ManifestData,
+  ProtocolEntry,
+  ProtocolMeta,
+  ManifestLoadOptions,
+} from "./manifest.js";
 
 export {
   ManifestSignatureError,

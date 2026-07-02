@@ -64,6 +64,7 @@ describe("client over real HTTP", () => {
     }
     const hotMeta = await archive.writeHotHead(PID, [event(5n)], { from: 5n, to: 7n });
     await manifest.setHotHead(PID, hotMeta);
+    await manifest.flush();
     ({ server, baseUrl } = await serve(dir));
   });
 

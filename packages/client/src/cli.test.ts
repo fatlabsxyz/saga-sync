@@ -52,6 +52,7 @@ async function publish(
     });
     await manifest.setHotHead(protocolId, meta);
   }
+  await manifest.flush();
 }
 
 describe("client CLI handlers", () => {
@@ -107,6 +108,33 @@ describe("client CLI handlers", () => {
       });
       expect(out.hotHead).toMatchObject({ fromBlock: "0x20", toBlock: "0x28" });
       expect(out.totalCompressedSize).toMatch(/^0x[0-9a-f]+$/);
+    });
+
+    it("surfaces protocol, metadata, chainId and trackedAddresses", async () => {
+      const manifest = await Manifest.load(source);
+      await manifest.setProtocolMeta("p", {
+        protocol: "tornado-cash",
+        protocolMetadata: { denomination: "100000000000000000", asset: "ETH" },
+        chainId: "0x1",
+        trackedAddresses: ["0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc"],
+      });
+      await manifest.appendChunk("p", {
+        fromBlock: "0x0",
+        toBlock: "0x10",
+        file: "p-[0x0,0x10).jsonl.gz",
+        size: "0x1",
+        digest: { type: "sha256", data: "0x00" },
+      });
+      await manifest.flush();
+      const out = JSON.parse(await cmdInfo(client, "p", { json: true }));
+      expect(out).toMatchObject({
+        protocol: "tornado-cash",
+        protocolMetadata: { denomination: "100000000000000000", asset: "ETH" },
+        chainId: "0x1",
+        trackedAddresses: ["0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc"],
+      });
+      const human = await cmdInfo(client, "p", { json: false });
+      expect(human).toContain("type:            tornado-cash (chain 0x1)");
     });
 
     it("reports gaps in a non-contiguous chain", async () => {

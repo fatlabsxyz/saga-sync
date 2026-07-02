@@ -342,7 +342,7 @@ A replica must get these right; everything else is plumbing.
 
 5. **Hot heads.** The trailing partial — not yet at `size_limit` — is not sealed
    as immutable. It is written as a **mutable hot head** (`*.hot.jsonl.gz`,
-   tracked in `manifest.hotHeads`). The next run loads it back, appends new
+   tracked in the manifest entry's `hotHead` field). The next run loads it back, appends new
    events, and re-writes it. When it finally crosses `size_limit` it is
    **promoted**: the overflow is sealed as an immutable chunk and a fresh hot
    head holds the remainder. Net result: the same immutable chunk count as a
@@ -479,50 +479,57 @@ zero-byte payload — valid, and asserts "this range was scanned."
 
 Byte-identical format to a sealed chunk — JSONL of `CanonicalEvent`s, gzipped.
 The only difference is the `.hot.` filename infix and that the manifest tracks
-it in `hotHeads` rather than `availableStates`. At most one per protocol.
+it in the entry's `hotHead` field rather than `chunks`. At most one per protocol.
 
 ### 7.6 OUTPUT — manifest `index.json`
 
-The index. Written to the output directory:
+The index (format **v2**). Written to the output directory:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "updatedAt": "2026-06-11T14:00:00.000Z",
   "compression": "gzip",
-  "availableStates": {
-    "tornado-cash-1-eth-0.1": [
-      {
-        "fromBlock": "0x8b1d26",
-        "toBlock": "0x9c00000",
-        "file": "tornado-cash-1-eth-0.1-[0x8b1d26,0x9c00000).jsonl.gz",
-        "size": "0xa4f3c2",
-        "digest": {
-          "type": "sha256",
-          "data": "0x1234abcd…  (sha256 of the uncompressed JSONL)"
-        }
-      }
-    ]
-  },
-  "hotHeads": {
+  "availableProtocols": {
     "tornado-cash-1-eth-0.1": {
-      "fromBlock": "0x9c00000",
-      "toBlock": "0x9d12abc",
-      "file": "tornado-cash-1-eth-0.1-[0x9c00000,0x9d12abc).hot.jsonl.gz",
-      "size": "0x1e240",
-      "digest": { "type": "sha256", "data": "0x9abc…" }
+      "protocol": "tornado-cash",
+      "protocolMetadata": { "denomination": "100000000000000000", "asset": "ETH" },
+      "chainId": "0x1",
+      "trackedAddresses": ["0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc"],
+      "chunks": [
+        {
+          "fromBlock": "0x8b1d26",
+          "toBlock": "0x9c00000",
+          "file": "tornado-cash-1-eth-0.1-[0x8b1d26,0x9c00000).jsonl.gz",
+          "size": "0xa4f3c2",
+          "digest": { "type": "sha256", "data": "0x1234abcd… (sha256 of uncompressed JSONL)" }
+        }
+      ],
+      "hotHead": {
+        "fromBlock": "0x9c00000",
+        "toBlock": "0x9d12abc",
+        "file": "tornado-cash-1-eth-0.1-[0x9c00000,0x9d12abc).hot.jsonl.gz",
+        "size": "0x1e240",
+        "digest": { "type": "sha256", "data": "0x9abc…" }
+      }
     }
   }
 }
 ```
 
-- `version` — manifest format version (`1`). A consumer rejects a higher version
-  rather than misparsing it (`MANIFEST_VERSION` in `manifest.ts`).
+- `version` — manifest format version (`2`). A consumer rejects a higher version
+  rather than misparsing it (`MANIFEST_VERSION` in `manifest.ts`); v1 is read and
+  migrated. Writes are coalesced/throttled and keys serialized sorted (so the
+  bytes stay under GCS's per-object write-rate limit and are order-independent).
 - `updatedAt` — ISO-8601 stamp refreshed on every manifest write; a freshness
   signal that needs no chunk reads.
 - `compression` — chunk codec; `"gzip"` today.
-- `availableStates[id]` — immutable sealed chunks, block-ordered. Cache forever.
-- `hotHeads[id]` — at most one mutable entry per protocol; absent if none.
+- `availableProtocols[id]` — the stream's entry: metadata + chunk pointers.
+- `…protocol`/`protocolMetadata`/`chainId`/`trackedAddresses` — descriptive
+  metadata from config. `protocolMetadata` keys are **immutable per stream**
+  (written once, never overwritten).
+- `…chunks` — immutable sealed chunks, block-ordered. Cache forever.
+- `…hotHead` — at most one mutable entry per protocol; absent if none.
   Re-fetch every poll; its `file` URL changes whenever the range advances.
 - `digest.data` — sha256 of the **uncompressed** JSONL; verify with
   `gunzip -c <file> | shasum -a 256`.

@@ -46,54 +46,65 @@ The manifest is the entry point. A client fetches it to discover which chunks ar
 
 ```json
 {
-    "version": 1,
+    "version": 2,
     "updatedAt": "2024-01-15T12:00:00.000Z",
     "compression": "gzip",
-    "availableStates": {
-        "${protocol}-${chainId}-${instanceId}": [
-            {
-                "fromBlock": "0x0",
-                "toBlock": "0x100",
-                "file": "${protocol}-${chainId}-${instanceId}-[0x0,0x100).jsonl.gz",
-                "size": "0x4f2",
+    "availableProtocols": {
+        "${protocol}-${chainId}-${instanceId}": {
+            "protocol": "tornado-cash",
+            "protocolMetadata": { "denomination": "100000000000000000" },
+            "chainId": "0x1",
+            "trackedAddresses": ["0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc"],
+            "chunks": [
+                {
+                    "fromBlock": "0x0",
+                    "toBlock": "0x100",
+                    "file": "${protocol}-${chainId}-${instanceId}-[0x0,0x100).jsonl.gz",
+                    "size": "0x4f2",
+                    "digest": { "type": "sha256", "data": "0xabcdef..." }
+                }
+            ],
+            "hotHead": {
+                "fromBlock": "0x100",
+                "toBlock": "0x1a0",
+                "file": "${protocol}-${chainId}-${instanceId}-[0x100,0x1a0).hot.jsonl.gz",
+                "size": "0x2c1",
                 "digest": { "type": "sha256", "data": "0xabcdef..." }
             }
-        ]
-    },
-    "hotHeads": {
-        "${protocol}-${chainId}-${instanceId}": {
-            "fromBlock": "0x100",
-            "toBlock": "0x1a0",
-            "file": "${protocol}-${chainId}-${instanceId}-[0x100,0x1a0).hot.jsonl.gz",
-            "size": "0x2c1",
-            "digest": { "type": "sha256", "data": "0xabcdef..." }
         }
     }
 }
 ```
 
-A chunk's mutability is encoded by **which map it lives in** — `availableStates` (sealed) vs `hotHeads` (hot head) — not by a per-chunk flag. A consumer derives a protocol instance's first/last covered block from its chunk ranges rather than from stored per-instance fields.
+Each stream key maps to one entry holding its descriptive metadata plus its chunk pointers. A chunk's mutability is encoded by **which field it lives in** — `chunks` (sealed, immutable) vs `hotHead` (the mutable trailing chunk) — not by a per-chunk flag. A consumer derives a stream's first/last covered block from its chunk ranges.
 
 **Fields:**
 
 | Field | Description |
 |-------|-------------|
-| `version` | Integer manifest format version (currently `1`). A client rejects a higher version rather than misparsing it. |
+| `version` | Integer manifest format version (currently `2`). A client rejects a higher version rather than misparsing it. Version 1 (the `availableStates`/`hotHeads` layout) is still read and migrated. |
 | `updatedAt` | ISO 8601 timestamp, refreshed on every manifest write. |
 | `compression` | Compression codec applied to chunk files. `"gzip"` today. |
-| `availableStates` | Map of protocol instance key → ordered array of its **sealed** (immutable) chunk descriptors. |
-| `hotHeads` | Map of protocol instance key → its single **hot head** descriptor (the mutable trailing chunk). Optional; absent when no instance has an in-progress tail. |
-| `…[].fromBlock` | First block in the chunk's range (inclusive). |
-| `…[].toBlock` | End of the chunk's range (exclusive). The chunk contains events from blocks `[fromBlock, toBlock)`. |
-| `…[].file` | Filename of the chunk, relative to the manifest's base URL. |
-| `…[].size` | Size in bytes of the chunk file as **stored (compressed)**, `0x`-hex. |
-| `…[].digest` | Integrity digest of the **uncompressed** chunk content: `{ "type": "sha256", "data": "0x<hex>" }`. |
+| `availableProtocols` | Map of stream key → its entry (metadata + chunks). Keys are serialized sorted, so the bytes are independent of write order. |
+| `…{}.protocol` | Protocol family name (e.g. `"tornado-cash"`, `"privacy-pools"`, `"railgun"`). Optional. |
+| `…{}.protocolMetadata` | Free-form, protocol-specific metadata copied verbatim from the producer config — a blank slate (e.g. Tornado `denomination`, Privacy Pools `asset`). Optional. **Its keys MUST be treated as immutable per stream** (see below). |
+| `…{}.chainId` | The chain the stream is scraped from, `0x`-hex. Optional. |
+| `…{}.trackedAddresses` | The unique contract addresses whose events the stream collects. Optional. |
+| `…{}.chunks` | Ordered array of the stream's **sealed** (immutable) chunk descriptors. |
+| `…{}.hotHead` | The stream's single **hot head** descriptor (the mutable trailing chunk). Optional; absent when there is no in-progress tail. |
+| `…chunk.fromBlock` | First block in the chunk's range (inclusive). |
+| `…chunk.toBlock` | End of the chunk's range (exclusive). The chunk contains events from blocks `[fromBlock, toBlock)`. |
+| `…chunk.file` | Filename of the chunk, relative to the manifest's base URL. |
+| `…chunk.size` | Size in bytes of the chunk file as **stored (compressed)**, `0x`-hex. |
+| `…chunk.digest` | Integrity digest of the **uncompressed** chunk content: `{ "type": "sha256", "data": "0x<hex>" }`. |
+
+**`protocolMetadata` immutability:** the keys under `protocolMetadata` describe the entire stream — including chunks already published — so they MUST NOT change for a given stream key once set. The producer writes them **once** (when the stream first appears) and never overwrites them, so editing them in config after the fact has **no effect** on the manifest. To change a stream's metadata semantics, publish under a **new stream key** instead.
 
 **Invariants:**
 
-- There is at most one hot head per protocol instance (`hotHeads[key]` is a single object, not an array).
-- Within `availableStates[key]`, sealed chunks are sorted by `fromBlock` ascending and are contiguous: for consecutive chunks A and B, `A.toBlock == B.fromBlock`.
-- The hot head continues the sealed chain: `hotHeads[key].fromBlock` equals the last sealed chunk's `toBlock` (or the instance's start block if nothing has sealed yet).
+- There is at most one hot head per stream (`…{}.hotHead` is a single object, not an array).
+- Within `…{}.chunks`, sealed chunks are sorted by `fromBlock` ascending and are contiguous: for consecutive chunks A and B, `A.toBlock == B.fromBlock`.
+- The hot head continues the sealed chain: `hotHead.fromBlock` equals the last sealed chunk's `toBlock` (or the stream's start block if nothing has sealed yet).
 
 ### 3.2 Chunk
 
