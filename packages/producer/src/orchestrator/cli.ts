@@ -371,6 +371,7 @@ async function main(): Promise<void> {
         protocolMetadata: protocol.protocolMetadata,
         chainId: protocol.chainId,
         trackedAddresses: protocol.trackedAddresses,
+        trackedEventTopics: protocol.trackedEventTopics,
       });
       const result = await processProtocol({
         client,

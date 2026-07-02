@@ -69,14 +69,17 @@ describe("loadConfig", () => {
     expect(t.protocol).toBe("tornado-cash");
     expect(t.protocolMetadata).toEqual({ denomination: "100", asset: "ETH" });
     expect(t.trackedAddresses).toEqual([addrA, addrB]);
+    // topics b (twice) + c → deduped, config order.
+    expect(t.trackedEventTopics).toEqual([`0x${"b".repeat(64)}`, `0x${"c".repeat(64)}`]);
   });
 
-  it("omits protocol/protocolMetadata when absent but always derives trackedAddresses", () => {
+  it("omits protocol/protocolMetadata when absent but always derives tracked sets", () => {
     write(validConfig());
     const t = loadConfig(path, "p-1-x");
     expect(t.protocol).toBeUndefined();
     expect(t.protocolMetadata).toBeUndefined();
     expect(t.trackedAddresses).toEqual([`0x${"a".repeat(40)}`]);
+    expect(t.trackedEventTopics).toEqual([`0x${"b".repeat(64)}`]);
   });
 
   it("throws when fromBlock is missing", () => {

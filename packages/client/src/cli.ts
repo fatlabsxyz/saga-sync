@@ -39,6 +39,8 @@ Options:
   --to-block <hex>       info/chunks/stream: upper bound (exclusive)
   --address <0xhex>      stream: only emit events from this contract address
                          (repeatable; must be one the stream tracks)
+  --event-topic <0xhex>  stream: only emit events with this topic0 / event type
+                         (repeatable; must be one the stream tracks)
   --since-block <hex>    head: exit 3 if no block beyond this is covered
   --hot                  chunks: include the mutable hot head
   --cache-dir <path>     stream: local cache of verified sealed chunks
@@ -121,6 +123,7 @@ export async function cmdInfo(
         protocolMetadata: manifest.protocolMetadata(id) ?? null,
         chainId: manifest.chainId(id) ?? null,
         trackedAddresses: manifest.trackedAddresses(id) ?? [],
+        trackedEventTopics: manifest.trackedEventTopics(id) ?? [],
         manifestVersion: manifest.version(),
         updatedAt: manifest.updatedAt() ?? null,
         fromBlock: hexOrNull(first),
@@ -138,11 +141,13 @@ export async function cmdInfo(
   const ranged = opts.fromBlock !== undefined || opts.toBlock !== undefined;
   const meta = manifest.protocolMetadata(id);
   const tracked = manifest.trackedAddresses(id) ?? [];
+  const topics = manifest.trackedEventTopics(id) ?? [];
   return [
     `protocol:        ${id}`,
     `type:            ${manifest.protocolName(id) ?? "-"}${manifest.chainId(id) ? ` (chain ${manifest.chainId(id)})` : ""}`,
     ...(meta && Object.keys(meta).length ? [`metadata:        ${JSON.stringify(meta)}`] : []),
-    ...(tracked.length ? [`tracked:         ${tracked.join(", ")}`] : []),
+    ...(tracked.length ? [`tracked addrs:   ${tracked.join(", ")}`] : []),
+    ...(topics.length ? [`tracked topics:  ${topics.join(", ")}`] : []),
     `manifest:        v${manifest.version()}${manifest.updatedAt() ? `, updated ${manifest.updatedAt()}` : ""}`,
     `block range:     ${hexOrNull(first) ?? "-"} → ${hexOrNull(last) ?? "-"}`,
     `sealed chunks:   ${sealed.length}`,
@@ -220,7 +225,13 @@ export async function cmdChunks(
 async function runStream(
   manifestUrl: string,
   id: string,
-  opts: { cacheDir?: string; concurrency: number; publicKey?: string; addresses?: Hex[] } & Range,
+  opts: {
+    cacheDir?: string;
+    concurrency: number;
+    publicKey?: string;
+    addresses?: Hex[];
+    eventTopics?: Hex[];
+  } & Range,
 ): Promise<void> {
   const source = new HttpStore(manifestUrl);
   const cache = opts.cacheDir ? new DiskStore(opts.cacheDir) : undefined;
@@ -236,6 +247,7 @@ async function runStream(
     fromBlock: opts.fromBlock,
     toBlock: opts.toBlock,
     ...(opts.addresses ? { addresses: opts.addresses } : {}),
+    ...(opts.eventTopics ? { eventTopics: opts.eventTopics } : {}),
   })) {
     process.stdout.write(JSON.stringify(event) + "\n");
     count++;
@@ -267,6 +279,7 @@ async function main(): Promise<void> {
       concurrency: { type: "string" },
       "public-key": { type: "string" },
       address: { type: "string", multiple: true },
+      "event-topic": { type: "string", multiple: true },
     },
   });
 
@@ -323,6 +336,7 @@ async function main(): Promise<void> {
         concurrency,
         publicKey,
         ...(values.address ? { addresses: values.address as Hex[] } : {}),
+        ...(values["event-topic"] ? { eventTopics: values["event-topic"] as Hex[] } : {}),
         ...range,
       });
       return;

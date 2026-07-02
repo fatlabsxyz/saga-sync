@@ -33,6 +33,12 @@ export type StreamOptions = {
   // the caller sees, not what is downloaded. Passing an address the stream does
   // not track throws (guards against silently receiving zero events).
   addresses?: Hex[];
+  // Restrict the stream to these event types by `topic0` (the event-signature
+  // hash, = `eventTopic`). Most streams track several event types (e.g. Tornado
+  // Deposit + Withdrawal); this keeps only the requested ones. Same semantics as
+  // `addresses`: case-insensitive, post-decode, and throws on a topic the stream
+  // does not track (see the manifest's `trackedEventTopics`).
+  eventTopics?: Hex[];
 };
 
 const DEFAULT_CONCURRENCY = 4;
@@ -89,7 +95,21 @@ export class Client {
     const manifest = await this.fetchManifest();
     const sealed = selectSealedChunks(manifest.sealedChunks(protocolId), opts);
     const hot = selectHotHead(manifest.hotHead(protocolId), opts);
-    const keep = buildAddressFilter(manifest, protocolId, opts.addresses);
+    const keepAddress = buildSetFilter(
+      protocolId,
+      opts.addresses,
+      manifest.trackedAddresses(protocolId),
+      "address(es)",
+      (e) => e.contractAddress,
+    );
+    const keepTopic = buildSetFilter(
+      protocolId,
+      opts.eventTopics,
+      manifest.trackedEventTopics(protocolId),
+      "event topic(s)",
+      (e) => e.eventTopic,
+    );
+    const keep = (e: CanonicalEvent): boolean => keepAddress(e) && keepTopic(e);
 
     for await (const events of this.fetchSealedOrdered(sealed)) {
       for (const event of events) if (keep(event)) yield event;
@@ -144,27 +164,30 @@ function matchesFamily(id: string, prefix: string): boolean {
   return id === prefix || id.startsWith(`${prefix}-`);
 }
 
-// Build the per-event address predicate for streamEvents. No `addresses` → keep
-// everything. Otherwise match (case-insensitively) against the requested set,
-// after asserting every requested address is one the stream actually tracks —
-// a typo'd or wrong-stream address fails loudly instead of yielding nothing.
-function buildAddressFilter(
-  manifest: Manifest,
+// Build a per-event predicate for streamEvents' `addresses`/`eventTopics`
+// filters. No `requested` → keep everything. Otherwise match (case-insensitively)
+// on the field `pick` returns, after asserting every requested value is one the
+// stream actually tracks — a typo'd or wrong-stream value fails loudly instead
+// of silently yielding nothing. `tracked` is the manifest's advertised set (may
+// be undefined on a pre-metadata manifest, in which case the guard is skipped).
+function buildSetFilter(
   protocolId: string,
-  addresses?: Hex[],
+  requested: Hex[] | undefined,
+  tracked: Hex[] | undefined,
+  label: string,
+  pick: (event: CanonicalEvent) => Hex,
 ): (event: CanonicalEvent) => boolean {
-  if (addresses === undefined) return () => true;
-  const want = new Set(addresses.map((a) => a.toLowerCase()));
-  const tracked = manifest.trackedAddresses(protocolId);
+  if (requested === undefined) return () => true;
+  const want = new Set(requested.map((v) => v.toLowerCase()));
   if (tracked) {
-    const trackedSet = new Set(tracked.map((a) => a.toLowerCase()));
-    const unknown = [...want].filter((a) => !trackedSet.has(a));
+    const trackedSet = new Set(tracked.map((v) => v.toLowerCase()));
+    const unknown = [...want].filter((v) => !trackedSet.has(v));
     if (unknown.length > 0) {
       throw new Error(
-        `stream "${protocolId}" does not track address(es): ${unknown.join(", ")}. ` +
+        `stream "${protocolId}" does not track ${label}: ${unknown.join(", ")}. ` +
           `Tracked: ${tracked.join(", ")}`,
       );
     }
   }
-  return (event) => want.has(event.contractAddress.toLowerCase());
+  return (event) => want.has(pick(event).toLowerCase());
 }

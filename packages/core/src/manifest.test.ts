@@ -333,6 +333,7 @@ describe("Manifest", () => {
         protocolMetadata: { denomination: "100" },
         chainId: "0x1",
         trackedAddresses: ["0xabc"],
+        trackedEventTopics: ["0x111"],
       });
       // A second call with different values must be a no-op (immutable metadata).
       await m.setProtocolMeta("proto", {
@@ -340,6 +341,7 @@ describe("Manifest", () => {
         protocolMetadata: { denomination: "999" },
         chainId: "0x5",
         trackedAddresses: ["0xdef"],
+        trackedEventTopics: ["0x222"],
       });
       await m.flush();
       const reloaded = await Manifest.load(store);
@@ -347,6 +349,7 @@ describe("Manifest", () => {
       expect(reloaded.protocolMetadata("proto")).toEqual({ denomination: "100" });
       expect(reloaded.chainId("proto")).toBe("0x1");
       expect(reloaded.trackedAddresses("proto")).toEqual(["0xabc"]);
+      expect(reloaded.trackedEventTopics("proto")).toEqual(["0x111"]);
     });
 
     it("metadata survives alongside chunks and a hot head", async () => {

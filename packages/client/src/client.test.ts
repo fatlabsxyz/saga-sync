@@ -225,6 +225,60 @@ describe("Client", () => {
     });
   });
 
+  describe("streamEvents eventTopics filter", () => {
+    const DEP = "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196" as const;
+    const WD = "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931" as const;
+    const evTopic = (topic: string, block: bigint): CanonicalEvent => ({
+      ...event(block),
+      eventTopic: topic as `0x${string}`,
+      topics: [topic as `0x${string}`],
+    });
+
+    it("keeps only events of the requested topic (sealed + hot)", async () => {
+      await publish(
+        source,
+        [{ from: 1n, to: 3n, events: [evTopic(DEP, 1n), evTopic(WD, 2n)] }],
+        { from: 3n, to: 5n, events: [evTopic(DEP, 3n), evTopic(WD, 4n)] },
+      );
+      const client = new Client({ source });
+      const got = await collect(client.streamEvents(PID, { eventTopics: [DEP] }));
+      expect(got.map((e) => e.blockNumber)).toEqual(["0x1", "0x3"]);
+      expect(got.every((e) => e.eventTopic === DEP)).toBe(true);
+    });
+
+    it("combines with the address filter (both must match)", async () => {
+      const ADDR_A = "0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc";
+      await publish(source, [
+        {
+          from: 1n,
+          to: 4n,
+          events: [
+            { ...evTopic(DEP, 1n), contractAddress: ADDR_A as `0x${string}` },
+            { ...evTopic(WD, 2n), contractAddress: ADDR_A as `0x${string}` },
+          ],
+        },
+      ]);
+      const client = new Client({ source });
+      const got = await collect(
+        client.streamEvents(PID, { addresses: [ADDR_A as `0x${string}`], eventTopics: [WD] }),
+      );
+      expect(got.map((e) => e.blockNumber)).toEqual(["0x2"]);
+    });
+
+    it("throws when a requested topic is not tracked by the stream", async () => {
+      const archive = new ChunkArchive(source);
+      const manifest = await Manifest.load(source);
+      await manifest.setProtocolMeta(PID, { trackedEventTopics: [DEP] });
+      const meta = await archive.seal(PID, [evTopic(DEP, 1n)], { from: 1n, to: 2n });
+      await manifest.appendChunk(PID, meta);
+      await manifest.flush();
+      const client = new Client({ source });
+      await expect(collect(client.streamEvents(PID, { eventTopics: [WD] }))).rejects.toThrow(
+        /does not track/,
+      );
+    });
+  });
+
   describe("manifest signature verification", () => {
     const sign = (sk: string) => (bytes: Uint8Array) => signManifest(bytes, sk);
 

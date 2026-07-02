@@ -55,6 +55,10 @@ The manifest is the entry point. A client fetches it to discover which chunks ar
             "protocolMetadata": { "denomination": "100000000000000000" },
             "chainId": "0x1",
             "trackedAddresses": ["0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc"],
+            "trackedEventTopics": [
+                "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196",
+                "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931"
+            ],
             "chunks": [
                 {
                     "fromBlock": "0x0",
@@ -90,6 +94,7 @@ Each stream key maps to one entry holding its descriptive metadata plus its chun
 | `…{}.protocolMetadata` | Free-form, protocol-specific metadata copied verbatim from the producer config — a blank slate (e.g. Tornado `denomination`, Privacy Pools `asset`). Optional. **Its keys MUST be treated as immutable per stream** (see below). |
 | `…{}.chainId` | The chain the stream is scraped from, `0x`-hex. Optional. |
 | `…{}.trackedAddresses` | The unique contract addresses whose events the stream collects. Optional. |
+| `…{}.trackedEventTopics` | The unique event `topic0`s (event-signature hashes) the stream collects. Optional. Lets a consumer filter a stream by event type. |
 | `…{}.chunks` | Ordered array of the stream's **sealed** (immutable) chunk descriptors. |
 | `…{}.hotHead` | The stream's single **hot head** descriptor (the mutable trailing chunk). Optional; absent when there is no in-progress tail. |
 | `…chunk.fromBlock` | First block in the chunk's range (inclusive). |

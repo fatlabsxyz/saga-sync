@@ -54,11 +54,13 @@ export type ScraperTarget = {
   // Resolved from chunkSettings.maxSizeBytes if present. Orchestrator passes
   // it through to the chunk-builder; the scraper itself doesn't use it.
   maxSizeBytes?: number;
-  // Manifest metadata (config-carried). `trackedAddresses` is derived from the
-  // unique `events[].contractAddress` in config order.
+  // Manifest metadata (config-carried). `trackedAddresses`/`trackedEventTopics`
+  // are derived from the unique `events[].contractAddress`/`.eventTopic` in
+  // config order.
   protocol?: string;
   protocolMetadata?: Record<string, unknown>;
   trackedAddresses: Hex[];
+  trackedEventTopics: Hex[];
 };
 
 function readAndParse(path: string): Record<string, unknown> {
@@ -91,13 +93,15 @@ function parseTarget(path: string, protocolId: string, raw: unknown): ScraperTar
         ? maxSizeRaw
         : Number(BigInt(maxSizeRaw));
   const events = parsed.data.events as EventFilter[];
-  // Unique tracked contract addresses, in config (first-seen) order.
+  // Unique tracked contract addresses / event topics, in config (first-seen) order.
   const trackedAddresses = [...new Set(events.map((e) => e.contractAddress))] as Hex[];
+  const trackedEventTopics = [...new Set(events.map((e) => e.eventTopic))] as Hex[];
   const target: ScraperTarget = {
     chainId: parsed.data.chainId as Hex,
     fromBlock: parsed.data.fromBlock as Hex,
     events,
     trackedAddresses,
+    trackedEventTopics,
   };
   if (maxSizeBytes !== undefined) target.maxSizeBytes = maxSizeBytes;
   if (parsed.data.protocol !== undefined) target.protocol = parsed.data.protocol;

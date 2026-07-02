@@ -525,9 +525,10 @@ The index (format **v2**). Written to the output directory:
   signal that needs no chunk reads.
 - `compression` — chunk codec; `"gzip"` today.
 - `availableProtocols[id]` — the stream's entry: metadata + chunk pointers.
-- `…protocol`/`protocolMetadata`/`chainId`/`trackedAddresses` — descriptive
-  metadata from config. `protocolMetadata` keys are **immutable per stream**
-  (written once, never overwritten).
+- `…protocol`/`protocolMetadata`/`chainId`/`trackedAddresses`/`trackedEventTopics`
+  — descriptive metadata from config (`trackedEventTopics` = the stream's event
+  `topic0`s, for filtering by event type). `protocolMetadata` keys are
+  **immutable per stream** (written once, never overwritten).
 - `…chunks` — immutable sealed chunks, block-ordered. Cache forever.
 - `…hotHead` — at most one mutable entry per protocol; absent if none.
   Re-fetch every poll; its `file` URL changes whenever the range advances.

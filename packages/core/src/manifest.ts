@@ -28,6 +28,7 @@ export type ProtocolEntry = {
   protocolMetadata?: Record<string, unknown>;
   chainId?: Hex;
   trackedAddresses?: Hex[];
+  trackedEventTopics?: Hex[];
   chunks: ChunkMeta[];
   hotHead?: ChunkMeta;
 };
@@ -52,6 +53,7 @@ export type ProtocolMeta = {
   protocolMetadata?: Record<string, unknown>;
   chainId?: Hex;
   trackedAddresses?: Hex[];
+  trackedEventTopics?: Hex[];
 };
 
 const MANIFEST_KEY = "index.json";
@@ -88,6 +90,7 @@ function orderedEntry(e: ProtocolEntry): Record<string, unknown> {
     ...(e.protocolMetadata !== undefined ? { protocolMetadata: e.protocolMetadata } : {}),
     ...(e.chainId !== undefined ? { chainId: e.chainId } : {}),
     ...(e.trackedAddresses !== undefined ? { trackedAddresses: e.trackedAddresses } : {}),
+    ...(e.trackedEventTopics !== undefined ? { trackedEventTopics: e.trackedEventTopics } : {}),
     chunks: e.chunks,
     ...(e.hotHead !== undefined ? { hotHead: e.hotHead } : {}),
   };
@@ -182,6 +185,10 @@ export class Manifest {
 
   trackedAddresses(protocolId: string): Hex[] | undefined {
     return this.data.availableProtocols[protocolId]?.trackedAddresses;
+  }
+
+  trackedEventTopics(protocolId: string): Hex[] | undefined {
+    return this.data.availableProtocols[protocolId]?.trackedEventTopics;
   }
 
   chainId(protocolId: string): Hex | undefined {
@@ -295,6 +302,10 @@ export class Manifest {
     }
     if (e.trackedAddresses === undefined && meta.trackedAddresses !== undefined) {
       e.trackedAddresses = meta.trackedAddresses;
+      changed = true;
+    }
+    if (e.trackedEventTopics === undefined && meta.trackedEventTopics !== undefined) {
+      e.trackedEventTopics = meta.trackedEventTopics;
       changed = true;
     }
     return changed ? this.touch() : Promise.resolve();
