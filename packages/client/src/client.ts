@@ -1,4 +1,5 @@
 import type { CanonicalEvent } from "@saga-sync/core";
+import type { Hex } from "@saga-sync/core";
 import type { Store } from "@saga-sync/core";
 import type { ChunkMeta } from "@saga-sync/core";
 import { Manifest } from "@saga-sync/core";
@@ -25,6 +26,13 @@ export type ClientOptions = {
 export type StreamOptions = {
   fromBlock?: bigint;
   toBlock?: bigint;
+  // Restrict the stream to events emitted by these contract addresses. Useful
+  // for a stream that tracks more than one address (see the manifest's
+  // `trackedAddresses`). Case-insensitive. This is a post-decode filter — every
+  // chunk in the block range is still fetched and verified — so it trims what
+  // the caller sees, not what is downloaded. Passing an address the stream does
+  // not track throws (guards against silently receiving zero events).
+  addresses?: Hex[];
 };
 
 const DEFAULT_CONCURRENCY = 4;
@@ -81,14 +89,15 @@ export class Client {
     const manifest = await this.fetchManifest();
     const sealed = selectSealedChunks(manifest.sealedChunks(protocolId), opts);
     const hot = selectHotHead(manifest.hotHead(protocolId), opts);
+    const keep = buildAddressFilter(manifest, protocolId, opts.addresses);
 
     for await (const events of this.fetchSealedOrdered(sealed)) {
-      for (const event of events) yield event;
+      for (const event of events) if (keep(event)) yield event;
     }
 
     if (hot) {
       const events = await fetchChunkFrom(this.source, hot);
-      for (const event of events) yield event;
+      for (const event of events) if (keep(event)) yield event;
     }
   }
 
@@ -133,4 +142,29 @@ export class Client {
 // unrelated id that merely starts with the same characters.
 function matchesFamily(id: string, prefix: string): boolean {
   return id === prefix || id.startsWith(`${prefix}-`);
+}
+
+// Build the per-event address predicate for streamEvents. No `addresses` → keep
+// everything. Otherwise match (case-insensitively) against the requested set,
+// after asserting every requested address is one the stream actually tracks —
+// a typo'd or wrong-stream address fails loudly instead of yielding nothing.
+function buildAddressFilter(
+  manifest: Manifest,
+  protocolId: string,
+  addresses?: Hex[],
+): (event: CanonicalEvent) => boolean {
+  if (addresses === undefined) return () => true;
+  const want = new Set(addresses.map((a) => a.toLowerCase()));
+  const tracked = manifest.trackedAddresses(protocolId);
+  if (tracked) {
+    const trackedSet = new Set(tracked.map((a) => a.toLowerCase()));
+    const unknown = [...want].filter((a) => !trackedSet.has(a));
+    if (unknown.length > 0) {
+      throw new Error(
+        `stream "${protocolId}" does not track address(es): ${unknown.join(", ")}. ` +
+          `Tracked: ${tracked.join(", ")}`,
+      );
+    }
+  }
+  return (event) => want.has(event.contractAddress.toLowerCase());
 }

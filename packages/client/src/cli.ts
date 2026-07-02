@@ -37,6 +37,8 @@ Options:
   --json                 machine-readable output instead of human tables
   --from-block <hex>     info/chunks/stream: lower bound of the block range
   --to-block <hex>       info/chunks/stream: upper bound (exclusive)
+  --address <0xhex>      stream: only emit events from this contract address
+                         (repeatable; must be one the stream tracks)
   --since-block <hex>    head: exit 3 if no block beyond this is covered
   --hot                  chunks: include the mutable hot head
   --cache-dir <path>     stream: local cache of verified sealed chunks
@@ -218,7 +220,7 @@ export async function cmdChunks(
 async function runStream(
   manifestUrl: string,
   id: string,
-  opts: { cacheDir?: string; concurrency: number; publicKey?: string } & Range,
+  opts: { cacheDir?: string; concurrency: number; publicKey?: string; addresses?: Hex[] } & Range,
 ): Promise<void> {
   const source = new HttpStore(manifestUrl);
   const cache = opts.cacheDir ? new DiskStore(opts.cacheDir) : undefined;
@@ -233,6 +235,7 @@ async function runStream(
   for await (const event of client.streamEvents(id, {
     fromBlock: opts.fromBlock,
     toBlock: opts.toBlock,
+    ...(opts.addresses ? { addresses: opts.addresses } : {}),
   })) {
     process.stdout.write(JSON.stringify(event) + "\n");
     count++;
@@ -263,6 +266,7 @@ async function main(): Promise<void> {
       hot: { type: "boolean", default: false },
       concurrency: { type: "string" },
       "public-key": { type: "string" },
+      address: { type: "string", multiple: true },
     },
   });
 
@@ -318,6 +322,7 @@ async function main(): Promise<void> {
         cacheDir: values["cache-dir"] ? resolve(values["cache-dir"]) : undefined,
         concurrency,
         publicKey,
+        ...(values.address ? { addresses: values.address as Hex[] } : {}),
         ...range,
       });
       return;

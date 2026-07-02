@@ -183,6 +183,48 @@ describe("Client", () => {
     expect(() => new Client({ source, concurrency: 0 })).toThrow(/concurrency/);
   });
 
+  describe("streamEvents address filter", () => {
+    const ADDR_A = "0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc" as const;
+    const ADDR_B = "0x47ce0c6ed5b0ce3d3a51fdb1c52dc66a7c3c2936" as const;
+    const evAt = (addr: string, block: bigint): CanonicalEvent => ({
+      ...event(block),
+      contractAddress: addr as `0x${string}`,
+    });
+
+    it("keeps only events from the requested addresses (sealed + hot)", async () => {
+      await publish(
+        source,
+        [{ from: 1n, to: 3n, events: [evAt(ADDR_A, 1n), evAt(ADDR_B, 2n)] }],
+        { from: 3n, to: 5n, events: [evAt(ADDR_A, 3n), evAt(ADDR_B, 4n)] },
+      );
+      const client = new Client({ source });
+      const got = await collect(client.streamEvents(PID, { addresses: [ADDR_A] }));
+      expect(got.map((e) => e.blockNumber)).toEqual(["0x1", "0x3"]);
+      expect(got.every((e) => e.contractAddress === ADDR_A)).toBe(true);
+    });
+
+    it("matches addresses case-insensitively", async () => {
+      await publish(source, [{ from: 1n, to: 2n, events: [evAt(ADDR_A, 1n)] }]);
+      const client = new Client({ source });
+      const upper = ADDR_A.toUpperCase() as `0x${string}`;
+      const got = await collect(client.streamEvents(PID, { addresses: [upper] }));
+      expect(got).toHaveLength(1);
+    });
+
+    it("throws when a requested address is not tracked by the stream", async () => {
+      const archive = new ChunkArchive(source);
+      const manifest = await Manifest.load(source);
+      await manifest.setProtocolMeta(PID, { trackedAddresses: [ADDR_A] });
+      const meta = await archive.seal(PID, [evAt(ADDR_A, 1n)], { from: 1n, to: 2n });
+      await manifest.appendChunk(PID, meta);
+      await manifest.flush();
+      const client = new Client({ source });
+      await expect(collect(client.streamEvents(PID, { addresses: [ADDR_B] }))).rejects.toThrow(
+        /does not track/,
+      );
+    });
+  });
+
   describe("manifest signature verification", () => {
     const sign = (sk: string) => (bytes: Uint8Array) => signManifest(bytes, sk);
 
