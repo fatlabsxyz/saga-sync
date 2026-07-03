@@ -2,7 +2,15 @@
 
 This project aims to solve state distribution for privacy protocols in the least opinionated way. We provide a spec and a reasonable implementation, but other implementations are welcomed.
 
-This README is a concise **protocol** overview — the data formats, naming, and the normalization rules that make chunks reproducible. For the full normative specification see [SPEC.md](SPEC.md); for the reference implementation (module layout, CLIs, algorithms) see [ARCHITECTURE.md](ARCHITECTURE.md).
+This README is a concise **protocol** overview — the data formats, naming, and the normalization rules that make chunks reproducible. For the full normative specification see [SPEC.md](SPEC.md).
+
+The reference implementation is a pnpm workspace of three packages, each with its own README:
+
+- **[`@saga-sync/producer`](packages/producer)** — scrape · chunk · orchestrate · publish (the scraper / chunk-builder / orchestrator CLIs).
+- **[`@saga-sync/client`](packages/client)** — the consumer library + CLI: fetch, verify, and stream published state.
+- **[`@saga-sync/core`](packages/core)** — the shared kernel: manifest schema, crypto, and the `Store` abstraction.
+
+[ARCHITECTURE.md](ARCHITECTURE.md) is the cross-package map (how the stages fit and where to read next); [DEPLOY.md](DEPLOY.md) covers running the producer on GCP.
 
 ## Index file
 ```json
