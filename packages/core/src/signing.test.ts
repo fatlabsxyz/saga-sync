@@ -20,7 +20,7 @@ describe("signing", () => {
 
   it("round-trips: a signature over the bytes verifies with the public key", () => {
     const { secretKey, publicKey } = generateKeyPair();
-    const msg = bytes('{"availableStates":{}}\n');
+    const msg = bytes('{"availableProtocols":{}}\n');
     const sig = signManifest(msg, secretKey);
     expect(sig).toMatch(/^0x[0-9a-f]{128}$/);
     expect(() => verifyManifestSignature(msg, sig, publicKey)).not.toThrow();

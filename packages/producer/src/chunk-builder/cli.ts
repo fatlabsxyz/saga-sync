@@ -192,6 +192,8 @@ async function main(): Promise<void> {
     archive,
     manifest,
   });
+  // Manifest mutations only schedule throttled writes; flush to make them durable.
+  await manifest.flush();
 
   process.stderr.write(
     `chunk-builder: ${sealed.length} chunk(s) for ${args.protocolId} ` +

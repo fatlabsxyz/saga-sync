@@ -90,11 +90,16 @@ export class GcsStore implements Store {
 
   async put(key: string, data: Uint8Array): Promise<void> {
     const file = (await this.bucket()).file(this.obj(key));
-    await file.save(data, {
-      contentType: contentTypeFor(key),
-      metadata: { cacheControl: cacheControlFor(key) },
-      resumable: false,
-    });
+    // GCS caps mutations to a single object at ~1/sec; the manifest coalesces
+    // writes to stay under it, but retry 429s with backoff as a safety net so a
+    // transient burst never fails a run.
+    await withRetry(() =>
+      file.save(data, {
+        contentType: contentTypeFor(key),
+        metadata: { cacheControl: cacheControlFor(key) },
+        resumable: false,
+      }),
+    );
   }
 
   async get(key: string): Promise<Uint8Array | null> {
@@ -121,4 +126,28 @@ export class GcsStore implements Store {
 
 function isNotFound(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: number }).code === 404;
+}
+
+function isRateLimit(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  if ((err as { code?: number }).code === 429) return true;
+  const msg = String((err as { message?: unknown }).message ?? "").toLowerCase();
+  return msg.includes("429") || msg.includes("rate limit");
+}
+
+const RETRY_ATTEMPTS = 6;
+const RETRY_BASE_MS = 500;
+
+// Retry a put on GCS 429 (object mutation rate limit) with exponential backoff +
+// full jitter; other errors propagate immediately. Exported for tests.
+export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isRateLimit(err) || attempt >= RETRY_ATTEMPTS) throw err;
+      const cap = Math.min(15_000, RETRY_BASE_MS * 2 ** attempt);
+      await new Promise((r) => setTimeout(r, Math.round(Math.random() * cap)));
+    }
+  }
 }

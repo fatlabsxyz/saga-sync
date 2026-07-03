@@ -11,9 +11,9 @@ import {
 } from "node:fs";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createPublicClient, http, numberToHex } from "viem";
+import { numberToHex } from "viem";
 import type { PublicClient } from "viem";
-import { finalizedBlock, assertChainId } from "../scraper/cli.js";
+import { finalizedBlock, assertChainId, createRpcClient } from "../scraper/cli.js";
 import { loadAllProtocols } from "../scraper/config.js";
 import type { ScraperTarget } from "../scraper/config.js";
 import { createStore, parseStoreTarget } from "../storage/index.js";
@@ -27,6 +27,7 @@ const DEFAULT_WINDOW = 2000;
 const DEFAULT_CONFIRMATIONS = 12n;
 const DEFAULT_SIZE_LIMIT = 10 * 1024 * 1024;
 const DEFAULT_BATCH_SIZE = 100_000n;
+const DEFAULT_CONCURRENCY = 4;
 
 const USAGE = `orchestrator — run scrape→chunk in batches for every protocol
 
@@ -46,6 +47,8 @@ Options:
                          hot-head rewrite overhead.
   --confirmations <n>    fallback reorg buffer when "finalized" tag is unsupported
                          (default 12)
+  --concurrency <n>      protocols scraped in parallel (default 4). Raise together
+                         with Cloud Run --memory; mind the RPC provider's rate limit.
   --window <n>           scraper window size in blocks (default 2000)
   --size-limit <n>       chunk size cap in bytes if config does not specify it
                          (default 10485760 = 10 MiB)
@@ -68,6 +71,7 @@ function parseCliArgs() {
       "protocol-id": { type: "string" },
       "batch-size": { type: "string" },
       confirmations: { type: "string" },
+      concurrency: { type: "string" },
       window: { type: "string" },
       "size-limit": { type: "string" },
       "dry-run": { type: "boolean", default: false },
@@ -89,6 +93,11 @@ function parseCliArgs() {
   const batchSize = values["batch-size"] ? BigInt(values["batch-size"]) : DEFAULT_BATCH_SIZE;
   if (batchSize <= 0n) fail(`--batch-size must be positive; got ${values["batch-size"]}`);
 
+  const concurrency = values.concurrency ? Number(values.concurrency) : DEFAULT_CONCURRENCY;
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    fail(`--concurrency must be a positive integer; got ${values.concurrency}`);
+  }
+
   return {
     configPath: resolve(need("config")),
     rpc: need("rpc"),
@@ -97,6 +106,7 @@ function parseCliArgs() {
     protocolId: values["protocol-id"],
     batchSize,
     confirmations: values.confirmations ? BigInt(values.confirmations) : DEFAULT_CONFIRMATIONS,
+    concurrency,
     window: values.window ? Number(values.window) : DEFAULT_WINDOW,
     sizeLimit: values["size-limit"] ? Number(values["size-limit"]) : DEFAULT_SIZE_LIMIT,
     dryRun: values["dry-run"] ?? false,
@@ -274,6 +284,24 @@ async function processProtocol(args: {
   return { ranBatches, sealedChunks: totalSealed, finalHotHead };
 }
 
+// Bounded worker pool: run `worker` over `items` with at most `concurrency`
+// in flight. `concurrency` workers pull from a shared cursor until it drains,
+// so a slow protocol never blocks others and no more than N run at once.
+async function runPool<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (cursor < items.length) {
+      const item = items[cursor++]!;
+      await worker(item);
+    }
+  });
+  await Promise.all(runners);
+}
+
 async function main(): Promise<void> {
   const args = parseCliArgs();
   const storeConfig = parseStoreTarget(args.output);
@@ -300,7 +328,7 @@ async function main(): Promise<void> {
   const archive = new ChunkArchive(store);
   const manifest = await Manifest.load(store, undefined, { signer: signerFromEnv() });
 
-  const client: PublicClient = createPublicClient({ transport: http(args.rpc) });
+  const client: PublicClient = createRpcClient(args.rpc);
   const tip =
     (await finalizedBlock(client)) ?? (await client.getBlockNumber()) - args.confirmations;
 
@@ -310,26 +338,23 @@ async function main(): Promise<void> {
       : fail(`unknown --protocol-id "${args.protocolId}". Known: ${Object.keys(protocols).join(", ")}`)
     : Object.keys(protocols);
 
-  let ran = 0;
-  let skipped = 0;
-  let failed = 0;
-  for (const protocolId of ids) {
+  // Process one protocol end-to-end, returning its outcome. Protocols are
+  // independent (disjoint manifest keys + content-addressed chunk files) and the
+  // manifest serializes its own writes, so these run concurrently. Failures are
+  // isolated per protocol — one throw never aborts the others.
+  const runOne = async (protocolId: string): Promise<"ran" | "skipped" | "failed"> => {
     const protocol = protocols[protocolId];
-    if (!protocol) continue;
+    if (!protocol) return "skipped";
 
     try {
       await assertChainId(client, protocol.chainId);
     } catch (err) {
       process.stderr.write(`orchestrator: skipping ${protocolId} — ${(err as Error).message}\n`);
-      skipped += 1;
-      continue;
+      return "skipped";
     }
 
     const startFrom = manifest.lastCoveredBlock(protocolId) ?? BigInt(protocol.fromBlock);
-    if (startFrom > tip) {
-      skipped += 1;
-      continue;
-    }
+    if (startFrom > tip) return "skipped";
 
     if (args.dryRun) {
       const batches = Math.ceil(Number((tip - startFrom + 1n) / args.batchSize)) || 1;
@@ -337,11 +362,17 @@ async function main(): Promise<void> {
         `orchestrator: [dry-run] ${protocolId} would scan ` +
           `[${numberToHex(startFrom)}, ${numberToHex(tip)}] in ${batches} batch(es)\n`,
       );
-      ran += 1;
-      continue;
+      return "ran";
     }
 
     try {
+      await manifest.setProtocolMeta(protocolId, {
+        protocol: protocol.protocol,
+        protocolMetadata: protocol.protocolMetadata,
+        chainId: protocol.chainId,
+        trackedAddresses: protocol.trackedAddresses,
+        trackedEventTopics: protocol.trackedEventTopics,
+      });
       const result = await processProtocol({
         client,
         protocolId,
@@ -360,12 +391,28 @@ async function main(): Promise<void> {
         `orchestrator: ${protocolId} ran ${result.ranBatches} batch(es), ` +
           `sealed ${result.sealedChunks} chunk(s)${hot}\n`,
       );
-      ran += 1;
+      return "ran";
     } catch (err) {
       process.stderr.write(`orchestrator: ${protocolId} failed — ${(err as Error).message}\n`);
-      failed += 1;
+      return "failed";
     }
-  }
+  };
+
+  // Counter writes run in async continuations on a single thread, so the
+  // increments never race even though the protocols run in parallel.
+  let ran = 0;
+  let skipped = 0;
+  let failed = 0;
+  await runPool(ids, args.concurrency, async (protocolId) => {
+    const outcome = await runOne(protocolId);
+    if (outcome === "ran") ran += 1;
+    else if (outcome === "skipped") skipped += 1;
+    else failed += 1;
+  });
+
+  // Flush the coalesced manifest writer: mutations only scheduled throttled
+  // writes, so this guarantees the final state is durable before we exit.
+  await manifest.flush();
 
   process.stderr.write(
     `orchestrator: ${ran} ran, ${skipped} skipped, ${failed} failed [tip ${numberToHex(tip)}]` +
@@ -388,4 +435,4 @@ if (isMainModule()) {
   });
 }
 
-export { main, parseCliArgs, processProtocol };
+export { main, parseCliArgs, processProtocol, runPool };

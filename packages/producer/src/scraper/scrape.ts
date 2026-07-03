@@ -14,12 +14,28 @@ export type ScrapeOptions = {
 // than a provider will accept. On a range/result-size error the window is halved
 // and the same sub-range retried — that adaptive split is what makes this work
 // against real RPCs whose limits vary.
+// Sustained provider rate-limiting is retried with exponential backoff on top of
+// viem's own transport retries; cap the attempts so a persistent outage still
+// surfaces rather than hanging the run.
+const MAX_RATE_LIMIT_RETRIES = 8;
+const RATE_LIMIT_BASE_MS = 250;
+const RATE_LIMIT_CAP_MS = 30_000;
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+// Exponential backoff with full jitter, capped.
+function backoffMs(attempt: number): number {
+  const exp = Math.min(RATE_LIMIT_CAP_MS, RATE_LIMIT_BASE_MS * 2 ** attempt);
+  return Math.round(Math.random() * exp);
+}
+
 export async function* scrape(
   client: PublicClient,
   { fromBlock, toBlock, events, window }: ScrapeOptions,
 ): AsyncGenerator<RpcLog> {
   let windowSize = BigInt(Math.max(1, Math.floor(window)));
   let start = fromBlock;
+  let rateLimitRetries = 0;
 
   while (start <= toBlock) {
     let end = start + windowSize - 1n;
@@ -33,11 +49,16 @@ export async function* scrape(
         windowSize = windowSize / 2n;
         continue; // retry the same `start` with a smaller window
       }
+      if (isRateLimitError(err) && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
+        await sleep(backoffMs(rateLimitRetries++));
+        continue; // back off and retry the same window (don't shrink it)
+      }
       throw err;
     }
 
     for (const log of logs) yield log;
     start = end + 1n;
+    rateLimitRetries = 0; // a successful window resets the backoff counter
   }
 }
 
@@ -47,22 +68,27 @@ async function getLogsForWindow(
   toBlock: bigint,
   events: EventFilter[],
 ): Promise<RpcLog[]> {
-  const out: RpcLog[] = [];
-  for (const filter of events) {
-    const topics: Hex[] = [filter.eventTopic, ...(filter.filter ?? [])];
-    const logs = (await client.request({
-      method: "eth_getLogs",
-      params: [
-        {
-          address: filter.contractAddress,
-          topics,
-          fromBlock: numberToHex(fromBlock),
-          toBlock: numberToHex(toBlock),
-        },
-      ],
-    })) as RpcLog[];
-    out.push(...logs);
-  }
+  // Fetch every event filter's logs for this window concurrently; with the
+  // client's batch transport these coalesce into a single batched HTTP call.
+  // If any filter hits a range error the whole window rejects and scrape()
+  // halves it and retries — idempotent, so re-fetching the others is fine.
+  const perFilter = await Promise.all(
+    events.map((filter) => {
+      const topics: Hex[] = [filter.eventTopic, ...(filter.filter ?? [])];
+      return client.request({
+        method: "eth_getLogs",
+        params: [
+          {
+            address: filter.contractAddress,
+            topics,
+            fromBlock: numberToHex(fromBlock),
+            toBlock: numberToHex(toBlock),
+          },
+        ],
+      }) as Promise<RpcLog[]>;
+    }),
+  );
+  const out = perFilter.flat();
   // Windows are scanned in ascending order; sorting within the window makes the
   // whole NDJSON stream globally ordered by (blockNumber, logIndex).
   out.sort((a, b) => {
@@ -86,5 +112,20 @@ function isRangeError(err: unknown): boolean {
     msg.includes("more than") ||
     msg.includes("response size") ||
     msg.includes("query timeout")
+  );
+}
+
+// Provider throttling (e.g. Alchemy "compute units per second capacity"). Kept
+// disjoint from isRangeError's terms so a rate limit backs off rather than
+// pointlessly shrinking the window. Checked after isRangeError.
+function isRateLimitError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    msg.includes("429") ||
+    msg.includes("rate limit") ||
+    msg.includes("too many requests") ||
+    msg.includes("capacity") ||
+    msg.includes("compute unit") ||
+    msg.includes("throughput")
   );
 }

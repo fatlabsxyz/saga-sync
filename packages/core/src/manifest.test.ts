@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DiskStore } from "./disk-store.js";
 import { Manifest } from "./manifest.js";
 import type { ChunkMeta } from "./manifest.js";
+import type { Store } from "./store.js";
 import { generateKeyPair, signManifest, verifyManifestSignature } from "./signing.js";
 
 const meta = (overrides: Partial<ChunkMeta> = {}): ChunkMeta => ({
@@ -27,13 +28,14 @@ describe("Manifest", () => {
 
   it("loads an empty manifest when index.json is absent", async () => {
     const m = await Manifest.load(store);
-    expect(m.snapshot()).toEqual({ version: 1, compression: "gzip", availableStates: {} });
+    expect(m.snapshot()).toEqual({ version: 1, compression: "gzip", availableProtocols: {} });
   });
 
   it("stamps version, compression and a fresh updatedAt on persist", async () => {
     const before = Date.now();
     const m = await Manifest.load(store);
     await m.appendChunk("proto", meta());
+    await m.flush();
     const reloaded = (await Manifest.load(store)).snapshot();
     expect(reloaded.version).toBe(1);
     expect(reloaded.compression).toBe("gzip");
@@ -41,29 +43,32 @@ describe("Manifest", () => {
     expect(new Date(reloaded.updatedAt!).getTime()).toBeGreaterThanOrEqual(before);
   });
 
-  it("rejects a manifest declaring a newer version rather than misparsing it", async () => {
+  it("tolerates an older development version stamp and re-stamps to the current version", async () => {
+    // The format is still in development; a manifest carrying an earlier stamp
+    // (e.g. an interim "2") is read as-is and rewritten with the current version.
     writeFileSync(
       join(dir, "index.json"),
-      JSON.stringify({ version: 2, compression: "gzip", availableStates: {} }),
-      "utf8",
-    );
-    await expect(Manifest.load(store)).rejects.toThrow(/unsupported version 2/);
-  });
-
-  it("treats a version-less (legacy) manifest as v1", async () => {
-    writeFileSync(
-      join(dir, "index.json"),
-      JSON.stringify({ availableStates: { proto: [meta()] } }),
+      JSON.stringify({ version: 2, compression: "gzip", availableProtocols: { proto: { chunks: [meta()] } } }),
       "utf8",
     );
     const m = await Manifest.load(store);
     expect(m.version()).toBe(1);
     expect(m.sealedChunks("proto")).toEqual([meta()]);
+    await m.appendChunk("proto", meta({ toBlock: "0xfff" }));
+    await m.flush();
+    expect((await Manifest.load(store)).snapshot().version).toBe(1);
+  });
+
+  it("reads a manifest without availableProtocols as empty rather than throwing", async () => {
+    writeFileSync(join(dir, "index.json"), JSON.stringify({ compression: "gzip" }), "utf8");
+    const m = await Manifest.load(store);
+    expect(m.protocolIds()).toEqual([]);
   });
 
   it("appendChunk persists and is readable on reload", async () => {
     const m = await Manifest.load(store);
     await m.appendChunk("proto-a", meta());
+    await m.flush();
     const reloaded = await Manifest.load(store);
     expect(reloaded.sealedChunks("proto-a")).toEqual([meta()]);
   });
@@ -76,6 +81,21 @@ describe("Manifest", () => {
     expect(m.sealedChunks("proto-a").map((c) => c.fromBlock)).toEqual(["0x1", "0x2", "0x3"]);
   });
 
+  it("serializes protocol keys sorted, regardless of write order", async () => {
+    const m = await Manifest.load(store);
+    await m.appendChunk("proto-c", meta());
+    await m.appendChunk("proto-a", meta());
+    await m.appendChunk("proto-b", meta());
+    await m.setHotHead("proto-c", meta());
+    await m.setHotHead("proto-a", meta());
+    await m.flush();
+    const raw = new TextDecoder().decode((await store.get("index.json"))!);
+    const parsed = JSON.parse(raw);
+    const keys = Object.keys(parsed.availableProtocols);
+    expect(keys).toEqual(["proto-a", "proto-b", "proto-c"]);
+    expect(keys.filter((k) => parsed.availableProtocols[k].hotHead)).toEqual(["proto-a", "proto-c"]);
+  });
+
   it("setHotHead stores one mutable entry per protocol; clearHotHead removes it", async () => {
     const m = await Manifest.load(store);
     await m.setHotHead("proto-a", meta({ toBlock: "0x100" }));
@@ -85,7 +105,7 @@ describe("Manifest", () => {
     expect(m.hotHead("proto-a")).toBeUndefined();
   });
 
-  it("setHotHead does not disturb availableStates", async () => {
+  it("setHotHead does not disturb the sealed chunks", async () => {
     const m = await Manifest.load(store);
     await m.appendChunk("proto-a", meta({ toBlock: "0xfff" }));
     await m.setHotHead("proto-a", meta({ toBlock: "0x100" }));
@@ -93,11 +113,13 @@ describe("Manifest", () => {
     expect(m.sealedChunks("proto-a")[0]?.toBlock).toBe("0xfff");
   });
 
-  it("clearHotHead drops the hotHeads field once empty", async () => {
+  it("clearHotHead removes the entry's hot head", async () => {
     const m = await Manifest.load(store);
     await m.setHotHead("proto-a", meta());
     await m.clearHotHead("proto-a");
-    expect(await Manifest.load(store).then((x) => x.snapshot().hotHeads)).toBeUndefined();
+    await m.flush();
+    const reloaded = (await Manifest.load(store)).snapshot();
+    expect(reloaded.availableProtocols["proto-a"]?.hotHead).toBeUndefined();
   });
 
   it("throws on a corrupt manifest rather than silently resetting", async () => {
@@ -205,19 +227,21 @@ describe("Manifest", () => {
         signer: (bytes) => signManifest(bytes, secretKey),
       });
       await m.appendChunk("proto", meta());
+      await m.flush();
 
       const manifestBytes = await store.get("index.json");
       const sig = await store.get("index.json.sig");
       expect(manifestBytes).not.toBeNull();
       expect(sig).not.toBeNull();
       expect(() =>
-        verifyManifestSignature(manifestBytes!, sig!.toString("utf8").trim(), publicKey),
+        verifyManifestSignature(manifestBytes!, new TextDecoder().decode(sig!).trim(), publicKey),
       ).not.toThrow();
     });
 
     it("does not write a signature when no signer is set", async () => {
       const m = await Manifest.load(store);
       await m.appendChunk("proto", meta());
+      await m.flush();
       expect(await store.get("index.json.sig")).toBeNull();
     });
 
@@ -228,11 +252,117 @@ describe("Manifest", () => {
       });
       await m.appendChunk("proto", meta({ toBlock: "0x10" }));
       await m.appendChunk("proto", meta({ toBlock: "0x20" }));
+      await m.flush();
       const manifestBytes = await store.get("index.json");
       const sig = await store.get("index.json.sig");
       expect(() =>
-        verifyManifestSignature(manifestBytes!, sig!.toString("utf8").trim(), publicKey),
+        verifyManifestSignature(manifestBytes!, new TextDecoder().decode(sig!).trim(), publicKey),
       ).not.toThrow();
+    });
+  });
+
+  describe("coalesced writes", () => {
+    // Counts puts so we can assert the manifest object isn't rewritten once per
+    // mutation (which would blow past GCS's ~1-write/sec/object limit).
+    class CountingStore implements Store {
+      readonly data = new Map<string, Uint8Array>();
+      puts: string[] = [];
+      async put(key: string, bytes: Uint8Array): Promise<void> {
+        this.puts.push(key);
+        this.data.set(key, Uint8Array.from(bytes));
+      }
+      async get(key: string): Promise<Uint8Array | null> {
+        return this.data.get(key) ?? null;
+      }
+      async delete(key: string): Promise<void> {
+        this.data.delete(key);
+      }
+      async list(prefix: string): Promise<string[]> {
+        return [...this.data.keys()].filter((k) => k.startsWith(prefix));
+      }
+    }
+
+    it("coalesces a burst of mutations into far fewer index.json writes", async () => {
+      const store = new CountingStore();
+      const m = await Manifest.load(store);
+      // 30 rapid mutations across many protocols, as parallel scraping produces.
+      await Promise.all(
+        Array.from({ length: 30 }, (_, i) => m.appendChunk(`p-${i}`, meta({ file: `p-${i}.gz` }))),
+      );
+      await m.flush();
+      const indexWrites = store.puts.filter((k) => k === "index.json").length;
+      expect(indexWrites).toBeLessThan(30); // coalesced, not one-per-mutation
+      expect(indexWrites).toBeGreaterThan(0);
+      // ...and every mutation still landed after flush.
+      const reloaded = (await Manifest.load(store)).snapshot();
+      expect(Object.keys(reloaded.availableProtocols)).toHaveLength(30);
+    });
+
+    it("flush makes all concurrent mutations durable", async () => {
+      const store = new CountingStore();
+      const m = await Manifest.load(store);
+      const ids = Array.from({ length: 8 }, (_, i) => `proto-${i}`);
+      await Promise.all(ids.map((id) => m.appendChunk(id, meta({ file: `${id}.jsonl.gz` }))));
+      await m.flush();
+      const reloaded = (await Manifest.load(store)).snapshot();
+      for (const id of ids) {
+        expect(reloaded.availableProtocols[id]?.chunks, `${id} should survive`).toHaveLength(1);
+      }
+    });
+
+    it("keeps index.json and its signature consistent after flush", async () => {
+      const store = new CountingStore();
+      const { secretKey, publicKey } = generateKeyPair();
+      const m = await Manifest.load(store, undefined, {
+        signer: (bytes) => signManifest(bytes, secretKey),
+      });
+      await Promise.all(
+        Array.from({ length: 6 }, (_, i) => m.appendChunk(`p-${i}`, meta({ file: `p-${i}.gz` }))),
+      );
+      await m.flush();
+      const body = (await store.get("index.json"))!;
+      const sig = new TextDecoder().decode((await store.get("index.json.sig"))!).trim();
+      expect(() => verifyManifestSignature(body, sig, publicKey)).not.toThrow();
+    });
+  });
+
+  describe("protocol metadata", () => {
+    it("setProtocolMeta is write-once — a changed value does not overwrite", async () => {
+      const m = await Manifest.load(store);
+      await m.setProtocolMeta("proto", {
+        protocol: "tornado-cash",
+        protocolMetadata: { denomination: "100" },
+        chainId: "0x1",
+        trackedAddresses: ["0xabc"],
+        trackedEventTopics: ["0x111"],
+      });
+      // A second call with different values must be a no-op (immutable metadata).
+      await m.setProtocolMeta("proto", {
+        protocol: "railgun",
+        protocolMetadata: { denomination: "999" },
+        chainId: "0x5",
+        trackedAddresses: ["0xdef"],
+        trackedEventTopics: ["0x222"],
+      });
+      await m.flush();
+      const reloaded = await Manifest.load(store);
+      expect(reloaded.protocolName("proto")).toBe("tornado-cash");
+      expect(reloaded.protocolMetadata("proto")).toEqual({ denomination: "100" });
+      expect(reloaded.chainId("proto")).toBe("0x1");
+      expect(reloaded.trackedAddresses("proto")).toEqual(["0xabc"]);
+      expect(reloaded.trackedEventTopics("proto")).toEqual(["0x111"]);
+    });
+
+    it("metadata survives alongside chunks and a hot head", async () => {
+      const m = await Manifest.load(store);
+      await m.setProtocolMeta("proto", { protocol: "privacy-pools" });
+      await m.appendChunk("proto", meta());
+      await m.setHotHead("proto", meta({ toBlock: "0xfff" }));
+      await m.flush();
+      const reloaded = await Manifest.load(store);
+      expect(reloaded.protocolName("proto")).toBe("privacy-pools");
+      expect(reloaded.sealedChunks("proto")).toHaveLength(1);
+      expect(reloaded.hotHead("proto")?.toBlock).toBe("0xfff");
     });
   });
 });

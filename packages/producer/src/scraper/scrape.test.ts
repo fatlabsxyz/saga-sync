@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { scrape } from "./scrape.js";
 import type { EventFilter } from "./config.js";
 
@@ -93,5 +93,56 @@ describe("scrape", () => {
     await expect(
       collect(scrape(client, { fromBlock: 0n, toBlock: 5n, events: [filter], window: 10 })),
     ).rejects.toThrow(/connection refused/);
+  });
+
+  it("backs off and retries the same window on a rate-limit error", async () => {
+    // random→0 makes the backoff sleep 0ms so the test is instant/deterministic.
+    const rnd = vi.spyOn(Math, "random").mockReturnValue(0);
+    const seen: Array<{ from: string; to: string }> = [];
+    let attempts = 0;
+    const client = fakeClient(async ({ params }) => {
+      seen.push({ from: params[0].fromBlock, to: params[0].toBlock });
+      attempts += 1;
+      if (attempts <= 2) throw new Error("429 Too Many Requests: compute units per second capacity");
+      return [{ blockNumber: "0x1", logIndex: "0x0" }];
+    });
+    const logs = await collect(
+      scrape(client, { fromBlock: 0n, toBlock: 9n, events: [filter], window: 10 }),
+    );
+    expect(logs).toHaveLength(1);
+    // The window is not shrunk — every attempt re-queries the same [0x0, 0x9].
+    expect(seen).toEqual([
+      { from: "0x0", to: "0x9" },
+      { from: "0x0", to: "0x9" },
+      { from: "0x0", to: "0x9" },
+    ]);
+    rnd.mockRestore();
+  });
+
+  it("gives up after the rate-limit retry cap", async () => {
+    const rnd = vi.spyOn(Math, "random").mockReturnValue(0);
+    const client = fakeClient(async () => {
+      throw new Error("429 rate limit exceeded capacity");
+    });
+    await expect(
+      collect(scrape(client, { fromBlock: 0n, toBlock: 9n, events: [filter], window: 10 })),
+    ).rejects.toThrow(/429/);
+    rnd.mockRestore();
+  });
+
+  it("merges and sorts logs across multiple filters in one window", async () => {
+    const filterB: EventFilter = {
+      contractAddress: `0x${"c".repeat(40)}` as `0x${string}`,
+      eventTopic: `0x${"d".repeat(64)}` as `0x${string}`,
+    };
+    const client = fakeClient(async ({ params }) =>
+      params[0].topics[0] === filter.eventTopic
+        ? [{ blockNumber: "0x2", logIndex: "0x0" }]
+        : [{ blockNumber: "0x1", logIndex: "0x3" }],
+    );
+    const logs = await collect(
+      scrape(client, { fromBlock: 0n, toBlock: 0n, events: [filter, filterB], window: 10 }),
+    );
+    expect(logs.map((l: any) => `${l.blockNumber}:${l.logIndex}`)).toEqual(["0x1:0x3", "0x2:0x0"]);
   });
 });

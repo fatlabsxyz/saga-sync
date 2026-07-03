@@ -1,0 +1,127 @@
+{
+  "protocols": {
+    "tornado-cash-11155111-eth-0.1": {
+      "chainId": "0xaa36a7",
+      "fromBlock": "0x555d20",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "100000000000000000",
+        "asset": "ETH",
+        "decimals": 18,
+        "isERC20": false
+      },
+      "events": [
+        {
+          "contractAddress": "0x8c4a04d872a6c1be37964a21ba3a138525dff50b",
+          "eventTopic": "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196"
+        },
+        {
+          "contractAddress": "0x8c4a04d872a6c1be37964a21ba3a138525dff50b",
+          "eventTopic": "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931"
+        }
+      ]
+    },
+    "tornado-cash-11155111-eth-1": {
+      "chainId": "0xaa36a7",
+      "fromBlock": "0x555d21",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "1000000000000000000",
+        "asset": "ETH",
+        "decimals": 18,
+        "isERC20": false
+      },
+      "events": [
+        {
+          "contractAddress": "0x8cc930096b4df705a007c4a039bdfa1320ed2508",
+          "eventTopic": "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196"
+        },
+        {
+          "contractAddress": "0x8cc930096b4df705a007c4a039bdfa1320ed2508",
+          "eventTopic": "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931"
+        }
+      ]
+    },
+    "tornado-cash-11155111-dai-100": {
+      "chainId": "0xaa36a7",
+      "fromBlock": "0x555d26",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "100000000000000000000",
+        "asset": "DAI",
+        "decimals": 18,
+        "isERC20": true,
+        "assetAddress": "0xff34b3d4aee8ddcd6f9afffb6fe49bd371b8a357"
+      },
+      "events": [
+        {
+          "contractAddress": "0x6921fd1a97441dd603a997ed6ddf388658daf754",
+          "eventTopic": "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196"
+        },
+        {
+          "contractAddress": "0x6921fd1a97441dd603a997ed6ddf388658daf754",
+          "eventTopic": "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931"
+        }
+      ]
+    },
+    "tornado-cash-11155111-relayer-registry": {
+      "chainId": "0xaa36a7",
+      "fromBlock": "0x555e24",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "kind": "relayer-registry",
+        "ensSubdomainKey": "sepolia-tornado"
+      },
+      "events": [
+        {
+          "contractAddress": "0xd6663593e71e4916ecb6f6606e1a6fbfa1634ffa",
+          "eventTopic": "0x9ca7c9c762eff27b021608f232b4c4b8f9b8bf9a3d322297e47cc4209a67d5e2"
+        },
+        {
+          "contractAddress": "0xd6663593e71e4916ecb6f6606e1a6fbfa1634ffa",
+          "eventTopic": "0x490a66cc56c789979052c7052fc0c10a6c4627d8e6165caec80db97a4c383521"
+        },
+        {
+          "contractAddress": "0xd6663593e71e4916ecb6f6606e1a6fbfa1634ffa",
+          "eventTopic": "0xafa759fb3c68e89eaaba359f0930ab40c24875b73cc9e2f6a38b0180019eb8f3"
+        },
+        {
+          "contractAddress": "0xd6663593e71e4916ecb6f6606e1a6fbfa1634ffa",
+          "eventTopic": "0x1275dbe2a271b2b822e60f1d44894fa5fb337e7e2dc6a200205b1a5b17c07d64"
+        },
+        {
+          "contractAddress": "0xd6663593e71e4916ecb6f6606e1a6fbfa1634ffa",
+          "eventTopic": "0x659f33fc6677bebf3a9bf3101092792e31f35766d0358e54577bdd91a655f6a0"
+        },
+        {
+          "contractAddress": "0xd6663593e71e4916ecb6f6606e1a6fbfa1634ffa",
+          "eventTopic": "0xcde75bd02c5f739608c891bcd9aa6809e6c4a7035ac7b9f3fd5fea756db74724"
+        },
+        {
+          "contractAddress": "0xd6663593e71e4916ecb6f6606e1a6fbfa1634ffa",
+          "eventTopic": "0xb2a8e18b9e887f502d65c1683e60b723fa582a6903ea4e8eb23907a19c1ce8a0"
+        },
+        {
+          "contractAddress": "0xd6663593e71e4916ecb6f6606e1a6fbfa1634ffa",
+          "eventTopic": "0x94df8c3a8087dce110e5fbc5acf380c83c94bbd31b2c8ed4c08e1396a696e1a8"
+        },
+        {
+          "contractAddress": "0xd6663593e71e4916ecb6f6606e1a6fbfa1634ffa",
+          "eventTopic": "0x404663163d528ec45288abc4389b81bd96fabf858ff57577ebd4ee7f15d7b0a6"
+        }
+      ]
+    }
+  }
+}

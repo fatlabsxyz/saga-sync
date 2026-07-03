@@ -6,6 +6,12 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "ETH",
+        "assetAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "decimals": 18
+      },
       "events": [
         {
           "contractAddress": "0xf241d57c6debae225c0f2e6ea1529373c9a9c9fb",
@@ -26,6 +32,12 @@
       "fromBlock": "0x15dd2ec",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "USDS",
+        "assetAddress": "0xdc035d45d973e3ec169d2276ddab16f1e407384f",
+        "decimals": 18
       },
       "events": [
         {
@@ -48,6 +60,12 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "sUSDS",
+        "assetAddress": "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd",
+        "decimals": 18
+      },
       "events": [
         {
           "contractAddress": "0xbbda2173cdfea1c3bd7f2908798f1265301d750c",
@@ -68,6 +86,12 @@
       "fromBlock": "0x15e25cf",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "DAI",
+        "assetAddress": "0x6b175474e89094c44da98b954eedeac495271d0f",
+        "decimals": 18
       },
       "events": [
         {
@@ -90,6 +114,12 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "USDT",
+        "assetAddress": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        "decimals": 6
+      },
       "events": [
         {
           "contractAddress": "0xe859c0bd25f260baee534fb52e307d3b64d24572",
@@ -110,6 +140,12 @@
       "fromBlock": "0x15ec8d0",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "USDC",
+        "assetAddress": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        "decimals": 6
       },
       "events": [
         {
@@ -132,6 +168,12 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "wstETH",
+        "assetAddress": "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0",
+        "decimals": 18
+      },
       "events": [
         {
           "contractAddress": "0x1a604e9dfa0efdc7ffda378af16cb81243b61633",
@@ -152,6 +194,12 @@
       "fromBlock": "0x15f9617",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "WBTC",
+        "assetAddress": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+        "decimals": 8
       },
       "events": [
         {
@@ -174,6 +222,12 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "USDe",
+        "assetAddress": "0x4c9edd5852cd905f086c759e8383e09bff1e68b3",
+        "decimals": 18
+      },
       "events": [
         {
           "contractAddress": "0xe6d36b33b00a7c0cb0c2a8d39d07e7db0c526abc",
@@ -194,6 +248,12 @@
       "fromBlock": "0x1606fea",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "USD1",
+        "assetAddress": "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d",
+        "decimals": 18
       },
       "events": [
         {
@@ -216,6 +276,12 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "frxUSD",
+        "assetAddress": "0xcacd6fd266af91b8aed52accc382b4e165586e29",
+        "decimals": 18
+      },
       "events": [
         {
           "contractAddress": "0xc6c769fac7aabeadd31a03fae5ca0ec5b4c50f84",
@@ -236,6 +302,12 @@
       "fromBlock": "0x162a285",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "wOETH",
+        "assetAddress": "0xdcee70654261af21c44c093c300ed3bb97b78192",
+        "decimals": 18
       },
       "events": [
         {
@@ -258,6 +330,12 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "fxUSD",
+        "assetAddress": "0x085780639cc2cacd35e474e71f4d000e2405d8f6",
+        "decimals": 18
+      },
       "events": [
         {
           "contractAddress": "0xd14f4b36e1d1d98c218db782c49149876042bc56",
@@ -278,6 +356,12 @@
       "fromBlock": "0x174da44",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "BOLD",
+        "assetAddress": "0x6440f144b7e50d6a8439336510312d2f54beb01d",
+        "decimals": 18
       },
       "events": [
         {
@@ -300,6 +384,12 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "100000000000000000",
+        "asset": "ETH",
+        "decimals": 18
+      },
       "events": [
         {
           "contractAddress": "0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc",
@@ -316,6 +406,12 @@
       "fromBlock": "0x8b1fa9",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "1000000000000000000",
+        "asset": "ETH",
+        "decimals": 18
       },
       "events": [
         {
@@ -334,6 +430,12 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "10000000000000000000",
+        "asset": "ETH",
+        "decimals": 18
+      },
       "events": [
         {
           "contractAddress": "0x910cbd523d972eb0a6f4cae4618ad62622b39dbf",
@@ -350,6 +452,12 @@
       "fromBlock": "0x8bcca7",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "100000000000000000000",
+        "asset": "ETH",
+        "decimals": 18
       },
       "events": [
         {
@@ -368,6 +476,13 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "100000000000000000000",
+        "asset": "DAI",
+        "decimals": 18,
+        "assetAddress": "0x6b175474e89094c44da98b954eedeac495271d0f"
+      },
       "events": [
         {
           "contractAddress": "0xd4b88df4d29f5cedd6857912842cff3b20c8cfa3",
@@ -384,6 +499,13 @@
       "fromBlock": "0x8bccbd",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "1000000000000000000000",
+        "asset": "DAI",
+        "decimals": 18,
+        "assetAddress": "0x6b175474e89094c44da98b954eedeac495271d0f"
       },
       "events": [
         {
@@ -402,6 +524,13 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "10000000000000000000000",
+        "asset": "DAI",
+        "decimals": 18,
+        "assetAddress": "0x6b175474e89094c44da98b954eedeac495271d0f"
+      },
       "events": [
         {
           "contractAddress": "0x07687e702b410fa43f4cb4af7fa097918ffd2730",
@@ -418,6 +547,13 @@
       "fromBlock": "0xb81d00",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "100000000000000000000000",
+        "asset": "DAI",
+        "decimals": 18,
+        "assetAddress": "0x6b175474e89094c44da98b954eedeac495271d0f"
       },
       "events": [
         {
@@ -436,6 +572,13 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "500000000000",
+        "asset": "cDAI",
+        "decimals": 8,
+        "assetAddress": "0x5d3a536e4d6dbd6114cc1ead35777bab948e3643"
+      },
       "events": [
         {
           "contractAddress": "0x22aaa7720ddd5388a3c0a3333430953c68f1849b",
@@ -452,6 +595,13 @@
       "fromBlock": "0xb828ad",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "5000000000000",
+        "asset": "cDAI",
+        "decimals": 8,
+        "assetAddress": "0x5d3a536e4d6dbd6114cc1ead35777bab948e3643"
       },
       "events": [
         {
@@ -470,6 +620,13 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "50000000000000",
+        "asset": "cDAI",
+        "decimals": 8,
+        "assetAddress": "0x5d3a536e4d6dbd6114cc1ead35777bab948e3643"
+      },
       "events": [
         {
           "contractAddress": "0x2717c5e28cf931547b621a5dddb772ab6a35b701",
@@ -486,6 +643,13 @@
       "fromBlock": "0xb81d05",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "500000000000000",
+        "asset": "cDAI",
+        "decimals": 8,
+        "assetAddress": "0x5d3a536e4d6dbd6114cc1ead35777bab948e3643"
       },
       "events": [
         {
@@ -504,6 +668,13 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "100000000",
+        "asset": "USDC",
+        "decimals": 6,
+        "assetAddress": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+      },
       "events": [
         {
           "contractAddress": "0xd96f2b1c14db8458374d9aca76e26c3d18364307",
@@ -520,6 +691,13 @@
       "fromBlock": "0x8bcced",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "1000000000",
+        "asset": "USDC",
+        "decimals": 6,
+        "assetAddress": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
       },
       "events": [
         {
@@ -538,6 +716,13 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "100000000",
+        "asset": "USDT",
+        "decimals": 6,
+        "assetAddress": "0xdac17f958d2ee523a2206206994597c13d831ec7"
+      },
       "events": [
         {
           "contractAddress": "0x169ad27a470d064dede56a2d3ff727986b15d52b",
@@ -554,6 +739,13 @@
       "fromBlock": "0x8bcd1c",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "1000000000",
+        "asset": "USDT",
+        "decimals": 6,
+        "assetAddress": "0xdac17f958d2ee523a2206206994597c13d831ec7"
       },
       "events": [
         {
@@ -572,6 +764,13 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "10000000",
+        "asset": "WBTC",
+        "decimals": 8,
+        "assetAddress": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
+      },
       "events": [
         {
           "contractAddress": "0x178169b423a011fff22b9e3f3abea13414ddd0f1",
@@ -588,6 +787,13 @@
       "fromBlock": "0xb81f5c",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "100000000",
+        "asset": "WBTC",
+        "decimals": 8,
+        "assetAddress": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
       },
       "events": [
         {
@@ -606,6 +812,13 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "1000000000",
+        "asset": "WBTC",
+        "decimals": 8,
+        "assetAddress": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
+      },
       "events": [
         {
           "contractAddress": "0xbb93e510bbcd0b7beb5a853875f9ec60275cf498",
@@ -623,6 +836,8 @@
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
+      "protocol": "railgun",
+      "protocolMetadata": {},
       "events": [
         {
           "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
@@ -639,6 +854,56 @@
         {
           "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
           "eventTopic": "0x781745c57906dc2f175fec80a9c691744c91c48a34a83672c41c2604774eb11f"
+        }
+      ]
+    },
+    "tornado-cash-1-relayer-registry": {
+      "chainId": "0x1",
+      "fromBlock": "0xd843c9",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "kind": "relayer-registry",
+        "ensSubdomainKey": "mainnet-tornado"
+      },
+      "events": [
+        {
+          "contractAddress": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2",
+          "eventTopic": "0x9ca7c9c762eff27b021608f232b4c4b8f9b8bf9a3d322297e47cc4209a67d5e2"
+        },
+        {
+          "contractAddress": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2",
+          "eventTopic": "0x490a66cc56c789979052c7052fc0c10a6c4627d8e6165caec80db97a4c383521"
+        },
+        {
+          "contractAddress": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2",
+          "eventTopic": "0xafa759fb3c68e89eaaba359f0930ab40c24875b73cc9e2f6a38b0180019eb8f3"
+        },
+        {
+          "contractAddress": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2",
+          "eventTopic": "0x1275dbe2a271b2b822e60f1d44894fa5fb337e7e2dc6a200205b1a5b17c07d64"
+        },
+        {
+          "contractAddress": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2",
+          "eventTopic": "0x659f33fc6677bebf3a9bf3101092792e31f35766d0358e54577bdd91a655f6a0"
+        },
+        {
+          "contractAddress": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2",
+          "eventTopic": "0xcde75bd02c5f739608c891bcd9aa6809e6c4a7035ac7b9f3fd5fea756db74724"
+        },
+        {
+          "contractAddress": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2",
+          "eventTopic": "0xb2a8e18b9e887f502d65c1683e60b723fa582a6903ea4e8eb23907a19c1ce8a0"
+        },
+        {
+          "contractAddress": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2",
+          "eventTopic": "0x94df8c3a8087dce110e5fbc5acf380c83c94bbd31b2c8ed4c08e1396a696e1a8"
+        },
+        {
+          "contractAddress": "0x58e8dcc13be9780fc42e8723d8ead4cf46943df2",
+          "eventTopic": "0x404663163d528ec45288abc4389b81bd96fabf858ff57577ebd4ee7f15d7b0a6"
         }
       ]
     }

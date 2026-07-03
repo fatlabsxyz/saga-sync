@@ -1,4 +1,5 @@
 import type { CanonicalEvent } from "@saga-sync/core";
+import type { Hex } from "@saga-sync/core";
 import type { Store } from "@saga-sync/core";
 import type { ChunkMeta } from "@saga-sync/core";
 import { Manifest } from "@saga-sync/core";
@@ -25,7 +26,34 @@ export type ClientOptions = {
 export type StreamOptions = {
   fromBlock?: bigint;
   toBlock?: bigint;
+  // Restrict the stream to events emitted by these contract addresses. Useful
+  // for a stream that tracks more than one address (see the manifest's
+  // `trackedAddresses`). Case-insensitive. This is a post-decode filter — every
+  // chunk in the block range is still fetched and verified — so it trims what
+  // the caller sees, not what is downloaded. Passing an address the stream does
+  // not track throws (guards against silently receiving zero events).
+  addresses?: Hex[];
+  // Restrict the stream to these event types by `topic0` (the event-signature
+  // hash, = `eventTopic`). Most streams track several event types (e.g. Tornado
+  // Deposit + Withdrawal); this keeps only the requested ones. Same semantics as
+  // `addresses`: case-insensitive, post-decode, and throws on a topic the stream
+  // does not track (see the manifest's `trackedEventTopics`).
+  eventTopics?: Hex[];
 };
+
+// Selects a stream by an on-chain contract address instead of its protocol id.
+// The client resolves it against the manifest's `trackedAddresses` (and
+// `chainId`, when given) to exactly one stream. See `Client.resolveProtocolId`.
+export type ProtocolSelector = {
+  address: Hex;
+  // Optional chain guard (0x-hex quantity), compared numerically so "0x1"
+  // matches "0x01". A manifest is single-chain in practice, so this mostly
+  // guards against pointing the client at the wrong bucket.
+  chainId?: Hex;
+};
+
+// `streamEvents` accepts either a protocol id or an address selector.
+export type StreamTarget = string | ProtocolSelector;
 
 const DEFAULT_CONCURRENCY = 4;
 
@@ -71,24 +99,60 @@ export class Client {
     return (prefix === undefined ? ids : ids.filter((id) => matchesFamily(id, prefix))).sort();
   }
 
+  // Resolve an address selector to exactly one stream id (or throw if none / more
+  // than one match). Exposed so a caller can resolve without streaming.
+  async resolveProtocolId(selector: ProtocolSelector): Promise<string> {
+    return resolveOne(await this.fetchManifest(), selector);
+  }
+
   // Layer 3: merged event stream for a protocol. Yields events in block order
   // across all sealed chunks in the optional [fromBlock, toBlock) window,
-  // then the hot head (re-fetched every call, never cached).
+  // then the hot head (re-fetched every call, never cached). `target` is either
+  // a protocol id or an address selector; a selector resolves to one stream and
+  // implicitly filters to that address.
   async *streamEvents(
-    protocolId: string,
+    target: StreamTarget,
     opts: StreamOptions = {},
   ): AsyncGenerator<CanonicalEvent, void, void> {
     const manifest = await this.fetchManifest();
-    const sealed = selectSealedChunks(manifest.sealedChunks(protocolId), opts);
-    const hot = selectHotHead(manifest.hotHead(protocolId), opts);
+    let protocolId: string;
+    let effectiveOpts = opts;
+    if (typeof target === "string") {
+      protocolId = target;
+    } else {
+      if (opts.addresses !== undefined) {
+        throw new Error(
+          "streamEvents: pass the address via the selector, not opts.addresses",
+        );
+      }
+      protocolId = resolveOne(manifest, target);
+      effectiveOpts = { ...opts, addresses: [target.address] };
+    }
+    const sealed = selectSealedChunks(manifest.sealedChunks(protocolId), effectiveOpts);
+    const hot = selectHotHead(manifest.hotHead(protocolId), effectiveOpts);
+    const keepAddress = buildSetFilter(
+      protocolId,
+      effectiveOpts.addresses,
+      manifest.trackedAddresses(protocolId),
+      "address(es)",
+      (e) => e.contractAddress,
+    );
+    const keepTopic = buildSetFilter(
+      protocolId,
+      effectiveOpts.eventTopics,
+      manifest.trackedEventTopics(protocolId),
+      "event topic(s)",
+      (e) => e.eventTopic,
+    );
+    const keep = (e: CanonicalEvent): boolean => keepAddress(e) && keepTopic(e);
 
     for await (const events of this.fetchSealedOrdered(sealed)) {
-      for (const event of events) yield event;
+      for (const event of events) if (keep(event)) yield event;
     }
 
     if (hot) {
       const events = await fetchChunkFrom(this.source, hot);
-      for (const event of events) yield event;
+      for (const event of events) if (keep(event)) yield event;
     }
   }
 
@@ -133,4 +197,70 @@ export class Client {
 // unrelated id that merely starts with the same characters.
 function matchesFamily(id: string, prefix: string): boolean {
   return id === prefix || id.startsWith(`${prefix}-`);
+}
+
+// Resolve an address selector against a manifest to exactly one protocol id.
+// Matches on `trackedAddresses` (case-insensitive) and, when given, `chainId`
+// (compared numerically). Throws on zero or multiple matches — a selector must
+// name one stream.
+function resolveOne(manifest: Manifest, selector: ProtocolSelector): string {
+  const addr = selector.address.toLowerCase();
+  const matches = manifest.protocolIds().filter((id) => {
+    const addrs = manifest.trackedAddresses(id);
+    if (!addrs?.some((a) => a.toLowerCase() === addr)) return false;
+    if (selector.chainId === undefined) return true;
+    const cid = manifest.chainId(id);
+    return cid !== undefined && sameQuantity(cid, selector.chainId);
+  });
+  const on = selector.chainId ? ` on chain ${selector.chainId}` : "";
+  if (matches.length === 0) {
+    throw new Error(
+      `streamEvents: no stream tracks address ${selector.address}${on} in this manifest`,
+    );
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `streamEvents: address ${selector.address}${on} matches multiple streams ` +
+        `(${matches.join(", ")}); pass a protocol id to disambiguate`,
+    );
+  }
+  return matches[0]!;
+}
+
+// Compare two 0x-hex quantities numerically ("0x1" == "0x01"), falling back to
+// a case-insensitive string match if either is not a valid quantity.
+function sameQuantity(a: Hex, b: Hex): boolean {
+  try {
+    return BigInt(a) === BigInt(b);
+  } catch {
+    return a.toLowerCase() === b.toLowerCase();
+  }
+}
+
+// Build a per-event predicate for streamEvents' `addresses`/`eventTopics`
+// filters. No `requested` → keep everything. Otherwise match (case-insensitively)
+// on the field `pick` returns, after asserting every requested value is one the
+// stream actually tracks — a typo'd or wrong-stream value fails loudly instead
+// of silently yielding nothing. `tracked` is the manifest's advertised set (may
+// be undefined on a pre-metadata manifest, in which case the guard is skipped).
+function buildSetFilter(
+  protocolId: string,
+  requested: Hex[] | undefined,
+  tracked: Hex[] | undefined,
+  label: string,
+  pick: (event: CanonicalEvent) => Hex,
+): (event: CanonicalEvent) => boolean {
+  if (requested === undefined) return () => true;
+  const want = new Set(requested.map((v) => v.toLowerCase()));
+  if (tracked) {
+    const trackedSet = new Set(tracked.map((v) => v.toLowerCase()));
+    const unknown = [...want].filter((v) => !trackedSet.has(v));
+    if (unknown.length > 0) {
+      throw new Error(
+        `stream "${protocolId}" does not track ${label}: ${unknown.join(", ")}. ` +
+          `Tracked: ${tracked.join(", ")}`,
+      );
+    }
+  }
+  return (event) => want.has(pick(event).toLowerCase());
 }

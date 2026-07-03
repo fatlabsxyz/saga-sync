@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   GcsStore,
   cacheControlFor,
   contentTypeFor,
+  withRetry,
   type GcsBucket,
   type GcsFile,
   type SaveOptions,
@@ -52,6 +53,32 @@ describe("contentTypeFor", () => {
     expect(contentTypeFor("x.jsonl.gz")).toBe("application/gzip");
     expect(contentTypeFor("index.json")).toBe("application/json");
     expect(contentTypeFor("x.bin")).toBe("application/octet-stream");
+  });
+});
+
+describe("withRetry (GCS 429 object mutation rate limit)", () => {
+  it("retries a 429 with backoff and eventually succeeds", async () => {
+    const rnd = vi.spyOn(Math, "random").mockReturnValue(0); // instant backoff
+    let calls = 0;
+    const out = await withRetry(async () => {
+      calls += 1;
+      if (calls <= 2) throw Object.assign(new Error("rate limit for object mutation"), { code: 429 });
+      return "ok";
+    });
+    expect(out).toBe("ok");
+    expect(calls).toBe(3);
+    rnd.mockRestore();
+  });
+
+  it("propagates a non-rate-limit error immediately", async () => {
+    let calls = 0;
+    await expect(
+      withRetry(async () => {
+        calls += 1;
+        throw Object.assign(new Error("boom"), { code: 500 });
+      }),
+    ).rejects.toThrow(/boom/);
+    expect(calls).toBe(1); // no retry
   });
 });
 

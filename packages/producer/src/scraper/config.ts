@@ -33,6 +33,12 @@ const targetSchema = z.object({
   fromBlock: quantity,
   events: z.array(eventFilterSchema).min(1, "at least one event filter is required"),
   chunkSettings: chunkSettingsSchema,
+  // Descriptive metadata surfaced in the manifest (all optional). `protocol` is
+  // the family name (e.g. "tornado-cash"); `protocolMetadata` is a free-form
+  // passthrough copied verbatim into the manifest — a blank slate for
+  // protocol-specific fields. See the manifest's write-once immutability note.
+  protocol: z.string().optional(),
+  protocolMetadata: z.record(z.unknown()).optional(),
 });
 
 export type EventFilter = {
@@ -48,6 +54,13 @@ export type ScraperTarget = {
   // Resolved from chunkSettings.maxSizeBytes if present. Orchestrator passes
   // it through to the chunk-builder; the scraper itself doesn't use it.
   maxSizeBytes?: number;
+  // Manifest metadata (config-carried). `trackedAddresses`/`trackedEventTopics`
+  // are derived from the unique `events[].contractAddress`/`.eventTopic` in
+  // config order.
+  protocol?: string;
+  protocolMetadata?: Record<string, unknown>;
+  trackedAddresses: Hex[];
+  trackedEventTopics: Hex[];
 };
 
 function readAndParse(path: string): Record<string, unknown> {
@@ -79,12 +92,22 @@ function parseTarget(path: string, protocolId: string, raw: unknown): ScraperTar
       : typeof maxSizeRaw === "number"
         ? maxSizeRaw
         : Number(BigInt(maxSizeRaw));
+  const events = parsed.data.events as EventFilter[];
+  // Unique tracked contract addresses / event topics, in config (first-seen) order.
+  const trackedAddresses = [...new Set(events.map((e) => e.contractAddress))] as Hex[];
+  const trackedEventTopics = [...new Set(events.map((e) => e.eventTopic))] as Hex[];
   const target: ScraperTarget = {
     chainId: parsed.data.chainId as Hex,
     fromBlock: parsed.data.fromBlock as Hex,
-    events: parsed.data.events as EventFilter[],
+    events,
+    trackedAddresses,
+    trackedEventTopics,
   };
   if (maxSizeBytes !== undefined) target.maxSizeBytes = maxSizeBytes;
+  if (parsed.data.protocol !== undefined) target.protocol = parsed.data.protocol;
+  if (parsed.data.protocolMetadata !== undefined) {
+    target.protocolMetadata = parsed.data.protocolMetadata;
+  }
   return target;
 }
 

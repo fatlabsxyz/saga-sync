@@ -2,7 +2,15 @@
 
 This project aims to solve state distribution for privacy protocols in the least opinionated way. We provide a spec and a reasonable implementation, but other implementations are welcomed.
 
-This README is a concise **protocol** overview — the data formats, naming, and the normalization rules that make chunks reproducible. For the full normative specification see [SPEC.md](SPEC.md); for the reference implementation (module layout, CLIs, algorithms) see [ARCHITECTURE.md](ARCHITECTURE.md).
+This README is a concise **protocol** overview — the data formats, naming, and the normalization rules that make chunks reproducible. For the full normative specification see [SPEC.md](SPEC.md).
+
+The reference implementation is a pnpm workspace of three packages, each with its own README:
+
+- **[`@saga-sync/producer`](packages/producer)** — scrape · chunk · orchestrate · publish (the scraper / chunk-builder / orchestrator CLIs).
+- **[`@saga-sync/client`](packages/client)** — the consumer library + CLI: fetch, verify, and stream published state.
+- **[`@saga-sync/core`](packages/core)** — the shared kernel: manifest schema, crypto, and the `Store` abstraction.
+
+[ARCHITECTURE.md](ARCHITECTURE.md) is the cross-package map (how the stages fit and where to read next); [DEPLOY.md](DEPLOY.md) covers running the producer on GCP.
 
 ## Index file
 ```json
@@ -10,36 +18,34 @@ This README is a concise **protocol** overview — the data formats, naming, and
     "version": 1,
     "updatedAt": "2026-06-11T14:00:00.000Z",
     "compression": "gzip",
-    "availableStates": {
-        "${protocol}-${chainId}-${instanceId}": [{
-            "fromBlock": "0x0",
-            "toBlock": "0x123434235",
-            "file": "${protocol}-${chainId}-${instanceId}-[${fromBlock},${toBlock}).jsonl.gz",
-            "size": "0xBytes",
-            "digest": {
-                "type": "sha256",
-                "data": "0x..."
-            }
-        }]
-    },
-    "hotHeads": {
+    "availableProtocols": {
         "${protocol}-${chainId}-${instanceId}": {
-            "fromBlock": "0x123434235",
-            "toBlock": "0x123434500",
-            "file": "${protocol}-${chainId}-${instanceId}-[${fromBlock},${toBlock}).hot.jsonl.gz",
-            "size": "0xBytes",
-            "digest": {
-                "type": "sha256",
-                "data": "0x..."
+            "protocol": "tornado-cash",
+            "protocolMetadata": { "denomination": "100000000000000000" },
+            "chainId": "0x1",
+            "trackedAddresses": ["0x..."],
+            "chunks": [{
+                "fromBlock": "0x0",
+                "toBlock": "0x123434235",
+                "file": "${protocol}-${chainId}-${instanceId}-[${fromBlock},${toBlock}).jsonl.gz",
+                "size": "0xBytes",
+                "digest": { "type": "sha256", "data": "0x..." }
+            }],
+            "hotHead": {
+                "fromBlock": "0x123434235",
+                "toBlock": "0x123434500",
+                "file": "${protocol}-${chainId}-${instanceId}-[${fromBlock},${toBlock}).hot.jsonl.gz",
+                "size": "0xBytes",
+                "digest": { "type": "sha256", "data": "0x..." }
             }
         }
     }
 }
 ```
 
-`version` is the manifest format version (currently `1`); a consumer rejects a manifest declaring a higher version rather than misparsing it. `updatedAt` is an ISO-8601 stamp refreshed on every write (a chunk-free freshness signal). `compression` declares the chunk codec (`gzip` today).
+`version` is the manifest format version (currently `1`). The format is still in development, so the field is informational — readers parse the `availableProtocols` shape and re-stamp the current version on write rather than rejecting on the number. `updatedAt` is an ISO-8601 stamp refreshed on every write (a chunk-free freshness signal). `compression` declares the chunk codec (`gzip` today).
 
-`availableStates[id]` holds **immutable** chunks (cache forever; verified by their sha256 digest). `hotHeads[id]` holds at most one **mutable** entry per protocol — the trailing partial that has not yet reached the chunk size limit. Each `hotHeads[id]` rewrite produces a new file under a new range-derived URL (so any given URL is itself immutable and CDN-cacheable); only the manifest pointer changes. The hotHeads field may be absent entirely on a manifest with no in-progress tails.
+`availableProtocols[id]` maps a stream key to one entry: descriptive metadata (`protocol`, `protocolMetadata`, `chainId`, `trackedAddresses`, `trackedEventTopics`) plus its chunk pointers. `chunks` holds **immutable** sealed chunks (cache forever; verified by their sha256 digest). `hotHead` holds at most one **mutable** entry — the trailing partial that has not yet reached the chunk size limit. Each hot-head rewrite produces a new file under a new range-derived URL (so any given URL is itself immutable and CDN-cacheable); only the manifest pointer changes. `hotHead` is absent when there is no in-progress tail. `protocolMetadata` is a free-form passthrough from config whose keys are **immutable per stream** (changing them is unsupported; publish a new stream key instead).
 
 Together the sealed chunks and the hot head partition `[firstSealed.fromBlock, hotHead.toBlock)` with no gaps — each entry's `toBlock` equals the next entry's `fromBlock`.
 

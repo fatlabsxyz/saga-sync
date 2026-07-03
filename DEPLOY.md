@@ -21,8 +21,18 @@ Cloud Scheduler (daily cron)
 | `Dockerfile` | Multi-stage build → slim runtime image (`pnpm install --prod` keeps the optional GCS SDK). |
 | `docker/entrypoint.sh` | Fetches config from GCS, then runs the orchestrator → `gs://BUCKET`. No `--lock-dir` (single-execution scheduling is the guard). |
 | `docker/fetch-config.mjs` | Downloads `CONFIG_URI` to `/tmp/config.json` via the same ADC the orchestrator uses. |
-| `publish-config.json` | The three protocols (privacy-pools, tornado, railgun). Uploaded to the bucket; **not** baked into the image, so the protocol set changes without a rebuild. |
+| `publish-config.json` | The per-pool streams across the three protocols (privacy-pools, tornado, railgun) — 34 today. Uploaded to the bucket; **not** baked into the image, so the stream set changes without a rebuild. |
 | `deploy/cloud-run-job.sh` | Idempotent provisioning: Artifact Registry, image build, service account + IAM, Cloud Run Job, Cloud Scheduler. |
+
+### Parallelism
+
+The orchestrator scrapes protocols concurrently — `--concurrency` (default **4**). Each in-flight
+protocol buffers up to ~10 MiB, so the job runs at **1 GiB** memory (`deploy/cloud-run-job.sh`).
+To go faster on a large backfill, raise memory and concurrency together and keep an eye on the RPC
+provider's rate limit (viem retries 429s and the scraper backs off, but a higher cap means more
+compute-units/sec). Override the default by appending `--args=--concurrency=N` to the job's
+`JOB_FLAGS`. Output is identical regardless of concurrency (protocols are independent; manifest
+writes are serialized).
 
 ## One-time setup
 

@@ -7,7 +7,7 @@
 // @saga-sync/core.
 
 export { Client } from "./client.js";
-export type { ClientOptions, StreamOptions } from "./client.js";
+export type { ClientOptions, StreamOptions, ProtocolSelector, StreamTarget } from "./client.js";
 export { HttpStore } from "@saga-sync/core";
 export type { Store } from "@saga-sync/core";
 
