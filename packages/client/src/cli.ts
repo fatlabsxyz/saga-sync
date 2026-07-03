@@ -7,6 +7,7 @@ import { HttpStore } from "@saga-sync/core";
 import { DiskStore } from "@saga-sync/core/node";
 import type { ChunkMeta, Hex } from "@saga-sync/core";
 import { Client } from "./client.js";
+import type { StreamTarget } from "./client.js";
 import { selectSealedChunks, selectHotHead } from "./manifest.js";
 import { humanBytes, table } from "./format.js";
 
@@ -28,17 +29,21 @@ Commands:
   info      <manifest-url> <protocol-id>  detailed summary for one protocol
   head      <manifest-url> <protocol-id>  latest covered block / freshness (alias: latest)
   chunks    <manifest-url> <protocol-id>  list this protocol's chunks
-  stream    <manifest-url> <protocol-id>  download + verify + emit NDJSON
+  stream    <manifest-url> [<protocol-id>] download + verify + emit NDJSON
 
 The manifest is read from <manifest-url>/index.json. The query commands
 (protocols/info/head/chunks) fetch only the manifest — no chunk downloads.
+For stream, omit <protocol-id> and pass a single --address (optionally --chain)
+to select the stream by contract address instead of its id.
 
 Options:
   --json                 machine-readable output instead of human tables
   --from-block <hex>     info/chunks/stream: lower bound of the block range
   --to-block <hex>       info/chunks/stream: upper bound (exclusive)
   --address <0xhex>      stream: only emit events from this contract address
-                         (repeatable; must be one the stream tracks)
+                         (repeatable filter with a <protocol-id>; or, without an
+                         id, a single --address selects the stream)
+  --chain <0xhex>        stream: chain-id guard when selecting a stream by --address
   --event-topic <0xhex>  stream: only emit events with this topic0 / event type
                          (repeatable; must be one the stream tracks)
   --since-block <hex>    head: exit 3 if no block beyond this is covered
@@ -224,7 +229,7 @@ export async function cmdChunks(
 
 async function runStream(
   manifestUrl: string,
-  id: string,
+  target: StreamTarget,
   opts: {
     cacheDir?: string;
     concurrency: number;
@@ -242,8 +247,9 @@ async function runStream(
     publicKey: opts.publicKey,
   });
 
+  const label = typeof target === "string" ? target : target.address;
   let count = 0;
-  for await (const event of client.streamEvents(id, {
+  for await (const event of client.streamEvents(target, {
     fromBlock: opts.fromBlock,
     toBlock: opts.toBlock,
     ...(opts.addresses ? { addresses: opts.addresses } : {}),
@@ -259,7 +265,7 @@ async function runStream(
         `${opts.toBlock !== undefined ? numberToHex(opts.toBlock) : "*"})`
       : "";
   process.stderr.write(
-    `state-client: ${count} event(s) for ${id}${range}` +
+    `state-client: ${count} event(s) for ${label}${range}` +
       (opts.cacheDir ? ` (cache=${opts.cacheDir})` : "") +
       `\n`,
   );
@@ -280,6 +286,7 @@ async function main(): Promise<void> {
       "public-key": { type: "string" },
       address: { type: "string", multiple: true },
       "event-topic": { type: "string", multiple: true },
+      chain: { type: "string" },
     },
   });
 
@@ -331,11 +338,32 @@ async function main(): Promise<void> {
       if (!Number.isInteger(concurrency) || concurrency < 1) {
         fail(`--concurrency must be a positive integer; got ${values.concurrency}`);
       }
-      await runStream(manifestUrl, needId(), {
+      const addresses = values.address as Hex[] | undefined;
+      const id = positionals[2];
+      let target: StreamTarget;
+      if (id) {
+        target = id;
+      } else {
+        // No protocol id → select the stream by exactly one --address (with an
+        // optional --chain guard). The address doubles as the post-decode filter.
+        if (!addresses || addresses.length !== 1) {
+          fail(
+            `stream needs a <protocol-id>, or exactly one --address ` +
+              `(with optional --chain) to select a stream\n\n${USAGE}`,
+          );
+        }
+        target = {
+          address: addresses[0]!,
+          ...(values.chain ? { chainId: values.chain as Hex } : {}),
+        };
+      }
+      await runStream(manifestUrl, target, {
         cacheDir: values["cache-dir"] ? resolve(values["cache-dir"]) : undefined,
         concurrency,
         publicKey,
-        ...(values.address ? { addresses: values.address as Hex[] } : {}),
+        // Pass --address as a post-decode filter only when a protocol id was
+        // named; with a selector the address is the selector, not opts.addresses.
+        ...(id && addresses ? { addresses } : {}),
         ...(values["event-topic"] ? { eventTopics: values["event-topic"] as Hex[] } : {}),
         ...range,
       });

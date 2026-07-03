@@ -75,7 +75,7 @@ describe("client CLI handlers", () => {
     });
 
     it("notes a present-but-empty manifest", async () => {
-      source.data.set("index.json", Buffer.from('{"availableStates":{}}\n', "utf8"));
+      source.data.set("index.json", Buffer.from('{"availableProtocols":{}}\n', "utf8"));
       expect(await cmdProtocols(client, { json: false })).toBe("(no protocols in manifest)");
     });
 

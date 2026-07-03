@@ -22,9 +22,10 @@ enforces it). The CLI and the optional disk cache are Node-only.
 ## Quick start (library)
 
 ```ts
-import { Client } from "@saga-sync/client";
+import { Client, HttpStore } from "@saga-sync/client";
 
-const client = new Client("https://cdn.example/pp-state/"); // dir holding index.json
+// `source` is the Store the manifest + chunks live behind (a CDN/bucket URL).
+const client = new Client({ source: new HttpStore("https://cdn.example/pp-state/") });
 
 // List what's published.
 for (const id of await client.listProtocols()) console.log(id);
@@ -70,6 +71,29 @@ for await (const e of client.streamEvents(id, {
 })) { … }
 ```
 
+### Selecting a stream by address
+
+Don't know (or want to hardcode) the stream id? Pass a **selector** — a contract
+address, optionally with a chain-id guard — instead of an id. The client resolves
+it against the manifest's `trackedAddresses` (and `chainId`) to exactly one stream
+and streams it, implicitly filtered to that address:
+
+```ts
+for await (const e of client.streamEvents({ address: "0x12d66f87…", chainId: "0x1" })) {
+  handle(e);
+}
+
+// Or resolve without streaming:
+const id = await client.resolveProtocolId({ address: "0x12d66f87…" });
+```
+
+`chainId` is optional. A manifest is single-chain in practice (mainnet and Sepolia
+are separate buckets), so it mostly guards against pointing at the wrong one.
+Resolution **throws** if the address matches no stream, or more than one — a
+selector must name exactly one stream (pass an explicit id to disambiguate).
+Combining a selector with `opts.addresses` also throws (the address is the
+selector).
+
 ## Verification model
 
 Everything the client serves is verified — **cache hits included**:
@@ -92,14 +116,17 @@ once enabled (missing or mismatched signature throws). Because the manifest hold
 every chunk's digest, one signature transitively authenticates the whole dataset.
 
 ```ts
-const client = new Client(baseUrl, { publicKey: "0x…" });
+const client = new Client({ source: new HttpStore(baseUrl), publicKey: "0x…" });
 ```
 
 ## Library API
 
-- **`Client`** — `streamEvents(id, opts?)` (merged sealed chunks then the hot head,
-  sealed fetched with a bounded-concurrency sliding window and optionally cached to
-  a local `Store`), `listProtocols(prefix?)`, plus manifest inspection helpers.
+- **`Client`** — `streamEvents(target, opts?)` (merged sealed chunks then the hot
+  head, sealed fetched with a bounded-concurrency sliding window and optionally
+  cached to a local `Store`). `target` is a protocol id **or** a
+  `{ address, chainId? }` selector. `resolveProtocolId(selector)` resolves a
+  selector to an id without streaming; `listProtocols(prefix?)` enumerates ids;
+  plus manifest inspection helpers.
 - **`loadManifest(store, key, { publicKey? })`** — one fetch; verifies the signature
   when a key is supplied. Re-uses core's `Manifest` so the shape is defined once.
 - **`decodeAndVerify` / `fetchChunkFrom(store, meta)`** — the fetch→gunzip→verify→
@@ -123,18 +150,26 @@ state-client <command> <manifest-url> [<protocol-id>] [options]
   info      <url> <id>       range, size, metadata, hot head, gap/contiguity check
   head      <url> <id>       latest covered block                (alias: latest)
   chunks    <url> <id>       list a protocol's chunks
-  stream    <url> <id>       download + verify + emit NDJSON
+  stream    <url> [<id>]     download + verify + emit NDJSON
 
   --json                 machine-readable output instead of human tables
   --from-block <hex>     info/chunks/stream: lower bound of the block range
   --to-block <hex>       info/chunks/stream: upper bound (exclusive)
-  --address <hex>        stream: keep only these contract addresses (repeatable)
+  --address <hex>        stream: with an <id>, a repeatable post-decode filter;
+                         without an <id>, a single --address selects the stream
+  --chain <hex>          stream: chain-id guard when selecting a stream by --address
   --event-topic <hex>    stream: keep only these event topic0s (repeatable)
   --since-block <hex>    head: exit 3 if no block beyond this is covered
   --hot                  chunks: include the mutable hot head
   --cache-dir <path>     stream: local cache of verified sealed chunks
   --concurrency <n>      stream: parallel chunk fetches (default 4)
   --public-key <hex>     require + verify the manifest's Ed25519 signature
+```
+
+Stream by address instead of naming the id:
+
+```bash
+state-client stream https://cdn.example/pp-state/ --address 0x12d66f87… --chain 0x1
 ```
 
 `stream` emits NDJSON on stdout + a summary on stderr; the query commands print a

@@ -16,8 +16,8 @@ export type ChunkMeta = {
 // metadata (copied verbatim from the scraper config) plus its chunk pointers.
 // `chunks` holds the immutable sealed chunks in block order; `hotHead` is the
 // single mutable trailing chunk (absent when there is no in-progress tail).
-// The metadata fields are optional so a migrated v1 manifest (which has none)
-// stays valid until the producer fills them from config.
+// The metadata fields are optional so an entry the producer has not yet
+// annotated (which has none) stays valid until the producer fills them from config.
 export type ProtocolEntry = {
   protocol?: string;
   // Free-form passthrough from config — a blank slate for protocol-specific
@@ -33,13 +33,13 @@ export type ProtocolEntry = {
   hotHead?: ChunkMeta;
 };
 
-// The on-disk JSON shape (manifest v2). `availableProtocols` maps a protocol
+// The on-disk JSON shape (manifest v1). `availableProtocols` maps a protocol
 // stream key to its metadata + chunk pointers.
 //
-// `version` lets a consumer reject a format it cannot parse (see
-// MANIFEST_VERSION). `updatedAt` is an ISO-8601 wall-clock stamp refreshed on
-// every write — a cheap "how fresh is this?" signal that needs no chunk reads.
-// `compression` declares the chunk codec; only "gzip" is produced today.
+// `version` is the format stamp (see MANIFEST_VERSION) — informational while the
+// format is still in development. `updatedAt` is an ISO-8601 wall-clock stamp
+// refreshed on every write — a cheap "how fresh is this?" signal that needs no
+// chunk reads. `compression` declares the chunk codec; only "gzip" is produced today.
 export type ManifestData = {
   version: number;
   updatedAt?: string;
@@ -58,11 +58,12 @@ export type ProtocolMeta = {
 
 const MANIFEST_KEY = "index.json";
 
-// The manifest format version this code writes, and the highest it can read. A
-// manifest declaring a higher version is rejected rather than misparsed. v2
-// restructured `availableStates`+`hotHeads` into the per-protocol
-// `availableProtocols` map; v1 is still read and migrated on load.
-export const MANIFEST_VERSION = 2;
+// The manifest format version this code stamps on write. The format is still in
+// development, so there is a single version (1); the field is informational — the
+// reader does not gate on it. It reads the `availableProtocols` shape and
+// re-stamps this version on the next write (so a manifest carrying an older
+// development stamp is transparently rewritten to the current one).
+export const MANIFEST_VERSION = 1;
 
 // GCS rate-limits mutations to a single object to ~1/second. Chunk-seal and
 // hot-head updates rewrite the one manifest object, so writes are coalesced:
@@ -120,9 +121,9 @@ export class Manifest {
   // Parse already-fetched manifest bytes into a Manifest, so a caller that has
   // (or must presence-check) the bytes does not fetch them a second time. A
   // `null` raw yields an empty manifest — the publisher's first-run case.
-  // Reads both v2 (`availableProtocols`) and v1 (`availableStates`+`hotHeads`,
-  // migrated in place). Consumers that require the manifest to exist null-check
-  // before calling.
+  // Reads the `availableProtocols` shape; the `version` field is informational
+  // (see MANIFEST_VERSION) and does not gate the read. Consumers that require the
+  // manifest to exist null-check before calling.
   static fromRaw(
     store: Store,
     key: string,
@@ -141,21 +142,13 @@ export class Manifest {
       } catch (err) {
         throw new Error(`manifest ${key}: ${(err as Error).message}`);
       }
-      // A version absent (legacy) is treated as v1; a version newer than we
-      // understand is a hard stop, not a best-effort parse.
-      const version = typeof parsed.version === "number" ? parsed.version : 1;
-      if (version > MANIFEST_VERSION) {
-        throw new Error(
-          `manifest ${key}: unsupported version ${version} (this client supports up to ${MANIFEST_VERSION})`,
-        );
-      }
       data = {
         version: MANIFEST_VERSION,
         compression: "gzip",
         availableProtocols:
           parsed.availableProtocols && typeof parsed.availableProtocols === "object"
             ? (parsed.availableProtocols as Record<string, ProtocolEntry>)
-            : migrateV1(parsed),
+            : {},
       };
       if (typeof parsed.updatedAt === "string") data.updatedAt = parsed.updatedAt;
     }
@@ -393,20 +386,4 @@ export class Manifest {
       await this.store.put(`${this.key}.sig`, new TextEncoder().encode(this.signer(bytes) + "\n"));
     }
   }
-}
-
-// Migrate a v1 manifest (`availableStates` + optional `hotHeads`) into the v2
-// per-protocol map. Metadata fields are left unset — the producer fills them
-// from config on the next run.
-function migrateV1(parsed: Record<string, unknown>): Record<string, ProtocolEntry> {
-  const states = (parsed.availableStates as Record<string, ChunkMeta[]>) ?? {};
-  const hots = (parsed.hotHeads as Record<string, ChunkMeta>) ?? {};
-  const out: Record<string, ProtocolEntry> = {};
-  for (const [id, chunks] of Object.entries(states)) {
-    out[id] = { chunks: Array.isArray(chunks) ? chunks : [] };
-  }
-  for (const [id, hot] of Object.entries(hots)) {
-    (out[id] ??= { chunks: [] }).hotHead = hot;
-  }
-  return out;
 }

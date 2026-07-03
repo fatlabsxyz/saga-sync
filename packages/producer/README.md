@@ -359,7 +359,7 @@ At most one hot head per protocol.
 
 ### Manifest `index.json`
 
-Format **v2** — see the root [SPEC.md §3.1](../../SPEC.md) for the normative schema
+Format **v1** — see the root [SPEC.md §3.1](../../SPEC.md) for the normative schema
 and the root [README.md](../../README.md) for the protocol-level walkthrough. The
 `Manifest` class that reads/writes it lives in [`@saga-sync/core`](../core).
 `digest.data` is the sha256 of the **uncompressed** JSONL (`gunzip -c <file> |

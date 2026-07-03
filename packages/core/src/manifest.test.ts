@@ -28,7 +28,7 @@ describe("Manifest", () => {
 
   it("loads an empty manifest when index.json is absent", async () => {
     const m = await Manifest.load(store);
-    expect(m.snapshot()).toEqual({ version: 2, compression: "gzip", availableProtocols: {} });
+    expect(m.snapshot()).toEqual({ version: 1, compression: "gzip", availableProtocols: {} });
   });
 
   it("stamps version, compression and a fresh updatedAt on persist", async () => {
@@ -37,31 +37,32 @@ describe("Manifest", () => {
     await m.appendChunk("proto", meta());
     await m.flush();
     const reloaded = (await Manifest.load(store)).snapshot();
-    expect(reloaded.version).toBe(2);
+    expect(reloaded.version).toBe(1);
     expect(reloaded.compression).toBe("gzip");
     expect(reloaded.updatedAt).toBeTypeOf("string");
     expect(new Date(reloaded.updatedAt!).getTime()).toBeGreaterThanOrEqual(before);
   });
 
-  it("rejects a manifest declaring a newer version rather than misparsing it", async () => {
+  it("tolerates an older development version stamp and re-stamps to the current version", async () => {
+    // The format is still in development; a manifest carrying an earlier stamp
+    // (e.g. an interim "2") is read as-is and rewritten with the current version.
     writeFileSync(
       join(dir, "index.json"),
-      JSON.stringify({ version: 3, compression: "gzip", availableProtocols: {} }),
-      "utf8",
-    );
-    await expect(Manifest.load(store)).rejects.toThrow(/unsupported version 3/);
-  });
-
-  it("migrates a version-less (legacy v1) manifest to v2", async () => {
-    writeFileSync(
-      join(dir, "index.json"),
-      JSON.stringify({ availableStates: { proto: [meta()] }, hotHeads: { proto: meta({ toBlock: "0xfff" }) } }),
+      JSON.stringify({ version: 2, compression: "gzip", availableProtocols: { proto: { chunks: [meta()] } } }),
       "utf8",
     );
     const m = await Manifest.load(store);
-    expect(m.version()).toBe(2);
+    expect(m.version()).toBe(1);
     expect(m.sealedChunks("proto")).toEqual([meta()]);
-    expect(m.hotHead("proto")?.toBlock).toBe("0xfff");
+    await m.appendChunk("proto", meta({ toBlock: "0xfff" }));
+    await m.flush();
+    expect((await Manifest.load(store)).snapshot().version).toBe(1);
+  });
+
+  it("reads a manifest without availableProtocols as empty rather than throwing", async () => {
+    writeFileSync(join(dir, "index.json"), JSON.stringify({ compression: "gzip" }), "utf8");
+    const m = await Manifest.load(store);
+    expect(m.protocolIds()).toEqual([]);
   });
 
   it("appendChunk persists and is readable on reload", async () => {
@@ -104,7 +105,7 @@ describe("Manifest", () => {
     expect(m.hotHead("proto-a")).toBeUndefined();
   });
 
-  it("setHotHead does not disturb availableStates", async () => {
+  it("setHotHead does not disturb the sealed chunks", async () => {
     const m = await Manifest.load(store);
     await m.appendChunk("proto-a", meta({ toBlock: "0xfff" }));
     await m.setHotHead("proto-a", meta({ toBlock: "0x100" }));

@@ -46,7 +46,7 @@ The manifest is the entry point. A client fetches it to discover which chunks ar
 
 ```json
 {
-    "version": 2,
+    "version": 1,
     "updatedAt": "2024-01-15T12:00:00.000Z",
     "compression": "gzip",
     "availableProtocols": {
@@ -86,7 +86,7 @@ Each stream key maps to one entry holding its descriptive metadata plus its chun
 
 | Field | Description |
 |-------|-------------|
-| `version` | Integer manifest format version (currently `2`). A client rejects a higher version rather than misparsing it. Version 1 (the `availableStates`/`hotHeads` layout) is still read and migrated. |
+| `version` | Integer manifest format version (currently `1`). The format is still in development: the field is informational — a client reads the `availableProtocols` shape and re-stamps the current version on write rather than gating on the number. |
 | `updatedAt` | ISO 8601 timestamp, refreshed on every manifest write. |
 | `compression` | Compression codec applied to chunk files. `"gzip"` today. |
 | `availableProtocols` | Map of stream key → its entry (metadata + chunks). Keys are serialized sorted, so the bytes are independent of write order. |

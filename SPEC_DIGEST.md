@@ -43,24 +43,32 @@ Comparison of the newly-added `SPEC.md` (Draft v0.1.0) against the current code
 | Digest | string `"sha256:abcdef"` (algo:hex, no `0x`) | object `{type:"sha256", data:"0x…"}` |
 | Digest scope | uncompressed content | uncompressed content ✓ aligned |
 
-- **`version` → GAP (cheap, recommended).** A one-line `version: 1` is cheap
-  insurance for future format changes; the client can reject unknown versions.
+- **`version` → RESOLVED.** `version: 1` is stamped on every write. While the
+  format is in development the reader treats it as informational (no reject-newer
+  gate yet) — see the "Manifest versioning collapsed to `1`" note below.
 - **`updatedAt` → GAP (cheap).** ISO timestamp; trivial to add on `persist()`.
   Useful for "is this stale?" without parsing chunks. (We already expose
   `lastCoveredBlock`; `updatedAtBlock` per instance is the block-height analog.)
 - **`compression` field → GAP (cheap) / KEEP behavior.** gzip is hardcoded; the
   field is absent. Adding `"compression":"gzip"` documents reality for free even
   if we never implement `"none"`.
-- **`availableStates[key]` array vs object → RESOLVED (2026-07-02, manifest v2).**
+- **`availableStates[key]` array vs object → RESOLVED (2026-07-02).**
   The shape is now a per-stream **object** `availableProtocols[key] = { protocol,
-  protocolMetadata, chainId, trackedAddresses, chunks[], hotHead? }`, which matches
-  the spec's per-instance-object direction. SPEC §3.1 was rewritten to this shape
-  (both updated together). `MANIFEST_VERSION = 2`; v1 (`availableStates`/`hotHeads`)
-  is still read and migrated on load. The mutable tail moved from a top-level
-  `hotHeads` map into each entry's `hotHead` field. `protocolMetadata` is a
-  config-carried passthrough whose keys are **immutable per stream** (written once,
-  never overwritten). `startBlock`/`updatedAtBlock` are still *derived*
+  protocolMetadata, chainId, trackedAddresses, trackedEventTopics, chunks[],
+  hotHead? }`, which matches the spec's per-instance-object direction. SPEC §3.1 was
+  rewritten to this shape (both updated together). The mutable tail lives in each
+  entry's `hotHead` field. `protocolMetadata` is a config-carried passthrough whose
+  keys are **immutable per stream** (written once, never overwritten).
+  `startBlock`/`updatedAtBlock` are still *derived*
   (`firstCoveredBlock`/`lastCoveredBlock`), not stored.
+- **Manifest versioning collapsed to `1` (2026-07-03).** While the format is in
+  development there is a single version — `MANIFEST_VERSION = 1`, the
+  `availableProtocols` shape. The interim renumbering (an earlier draft briefly
+  stamped `2` alongside a since-removed `availableStates`/`hotHeads` migration) was
+  reverted: the reader no longer gates on the version integer or migrates an old
+  layout — it reads `availableProtocols` and re-stamps `1` on write, so any manifest
+  carrying an older development stamp is transparently rewritten. Re-introduce a real
+  version bump + reject-newer gate when the format is frozen for release.
 - **Manifest write path (2026-07-02).** Writes are **coalesced + throttled** to
   ≤~1/sec and serialized (mutations update memory + a `flush()` guarantees
   durability at end of run), and `availableProtocols` keys are serialized sorted —

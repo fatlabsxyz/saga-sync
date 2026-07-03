@@ -63,12 +63,13 @@ mutation. The **normative on-the-wire schema** is in the root
   `setHotHead`, `clearHotHead`, and the **write-once** `setProtocolMeta(id, …)` —
   it fills only fields still unset, so `protocolMetadata` is immutable per stream
   once first written.
-- **Format**: `MANIFEST_VERSION = 2`. `fromRaw` parses v2 (`availableProtocols`)
-  and **migrates v1 losslessly** (`availableStates[id] → entry.chunks`,
-  `hotHeads[id] → entry.hotHead`) on first load. `persist()` serializes keys
-  **sorted** and **coalesces/throttles** writes (so the bytes stay order-
-  independent and under a GCS object's write-rate limit); `flush()` forces any
-  pending write to land.
+- **Format**: `MANIFEST_VERSION = 1`. The format is still in development, so the
+  `version` field is informational — `fromRaw` reads the `availableProtocols`
+  shape and does not gate on the number (a manifest carrying an older development
+  stamp is read and transparently re-stamped on the next write). `persist()`
+  serializes keys **sorted** and **coalesces/throttles** writes (so the bytes stay
+  order-independent and under a GCS object's write-rate limit); `flush()` forces
+  any pending write to land.
 - **Signing** (optional): construct with a `signer` and every `persist()` also
   writes a detached `index.json.sig` over the exact serialized bytes.
 

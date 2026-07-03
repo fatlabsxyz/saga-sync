@@ -15,7 +15,7 @@ The reference implementation is a pnpm workspace of three packages, each with it
 ## Index file
 ```json
 {
-    "version": 2,
+    "version": 1,
     "updatedAt": "2026-06-11T14:00:00.000Z",
     "compression": "gzip",
     "availableProtocols": {
@@ -43,7 +43,7 @@ The reference implementation is a pnpm workspace of three packages, each with it
 }
 ```
 
-`version` is the manifest format version (currently `2`); a consumer rejects a manifest declaring a higher version rather than misparsing it. `updatedAt` is an ISO-8601 stamp refreshed on every write (a chunk-free freshness signal). `compression` declares the chunk codec (`gzip` today).
+`version` is the manifest format version (currently `1`). The format is still in development, so the field is informational — readers parse the `availableProtocols` shape and re-stamp the current version on write rather than rejecting on the number. `updatedAt` is an ISO-8601 stamp refreshed on every write (a chunk-free freshness signal). `compression` declares the chunk codec (`gzip` today).
 
 `availableProtocols[id]` maps a stream key to one entry: descriptive metadata (`protocol`, `protocolMetadata`, `chainId`, `trackedAddresses`, `trackedEventTopics`) plus its chunk pointers. `chunks` holds **immutable** sealed chunks (cache forever; verified by their sha256 digest). `hotHead` holds at most one **mutable** entry — the trailing partial that has not yet reached the chunk size limit. Each hot-head rewrite produces a new file under a new range-derived URL (so any given URL is itself immutable and CDN-cacheable); only the manifest pointer changes. `hotHead` is absent when there is no in-progress tail. `protocolMetadata` is a free-form passthrough from config whose keys are **immutable per stream** (changing them is unsupported; publish a new stream key instead).
 

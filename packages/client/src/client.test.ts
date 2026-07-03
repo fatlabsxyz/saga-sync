@@ -225,6 +225,90 @@ describe("Client", () => {
     });
   });
 
+  describe("streamEvents by address selector", () => {
+    const ADDR_A = "0x12d66f87a04a9e220743712ce6d9bb1b5616b8fc" as const;
+    const ADDR_B = "0x47ce0c6ed5b0ce3d3a51fdb1c52dc66a7c3c2936" as const;
+    const evAt = (addr: string, block: bigint): CanonicalEvent => ({
+      ...event(block),
+      contractAddress: addr as `0x${string}`,
+    });
+
+    // Seal one chunk for `id`, tagging the stream's metadata (address + chain).
+    async function publishStream(
+      id: string,
+      addr: string,
+      chainId: `0x${string}`,
+      events: CanonicalEvent[],
+    ): Promise<void> {
+      const archive = new ChunkArchive(source);
+      const manifest = await Manifest.load(source);
+      await manifest.setProtocolMeta(id, {
+        chainId,
+        trackedAddresses: [addr as `0x${string}`],
+      });
+      const meta = await archive.seal(id, events, { from: 1n, to: 10n });
+      await manifest.appendChunk(id, meta);
+      await manifest.flush();
+    }
+
+    it("resolves an address to its stream and yields only that address's events", async () => {
+      await publishStream("tornado-cash-1-eth-0.1", ADDR_A, "0x1", [evAt(ADDR_A, 1n)]);
+      await publishStream("tornado-cash-1-dai-100", ADDR_B, "0x1", [evAt(ADDR_B, 2n)]);
+      const client = new Client({ source });
+      const got = await collect(client.streamEvents({ address: ADDR_A }));
+      expect(got.map((e) => e.blockNumber)).toEqual(["0x1"]);
+      expect(got.every((e) => e.contractAddress === ADDR_A)).toBe(true);
+    });
+
+    it("resolveProtocolId returns the matching id", async () => {
+      await publishStream("tornado-cash-1-eth-0.1", ADDR_A, "0x1", [evAt(ADDR_A, 1n)]);
+      const client = new Client({ source });
+      expect(await client.resolveProtocolId({ address: ADDR_A })).toBe("tornado-cash-1-eth-0.1");
+    });
+
+    it("matches the address case-insensitively and honors the chainId guard", async () => {
+      await publishStream("tornado-cash-1-eth-0.1", ADDR_A, "0x1", [evAt(ADDR_A, 1n)]);
+      const client = new Client({ source });
+      const got = await collect(
+        client.streamEvents({ address: ADDR_A.toUpperCase() as `0x${string}`, chainId: "0x01" }),
+      );
+      expect(got).toHaveLength(1);
+    });
+
+    it("throws when no stream tracks the address", async () => {
+      await publishStream("tornado-cash-1-eth-0.1", ADDR_A, "0x1", [evAt(ADDR_A, 1n)]);
+      const client = new Client({ source });
+      await expect(collect(client.streamEvents({ address: ADDR_B }))).rejects.toThrow(
+        /no stream tracks/,
+      );
+    });
+
+    it("throws on a chainId mismatch (guards the wrong bucket)", async () => {
+      await publishStream("tornado-cash-1-eth-0.1", ADDR_A, "0x1", [evAt(ADDR_A, 1n)]);
+      const client = new Client({ source });
+      await expect(
+        collect(client.streamEvents({ address: ADDR_A, chainId: "0xaa36a7" })),
+      ).rejects.toThrow(/no stream tracks/);
+    });
+
+    it("throws when the address matches multiple streams", async () => {
+      await publishStream("tornado-cash-1-eth-0.1", ADDR_A, "0x1", [evAt(ADDR_A, 1n)]);
+      await publishStream("railgun-1-main", ADDR_A, "0x1", [evAt(ADDR_A, 2n)]);
+      const client = new Client({ source });
+      await expect(collect(client.streamEvents({ address: ADDR_A }))).rejects.toThrow(
+        /multiple streams/,
+      );
+    });
+
+    it("rejects combining a selector with opts.addresses", async () => {
+      await publishStream("tornado-cash-1-eth-0.1", ADDR_A, "0x1", [evAt(ADDR_A, 1n)]);
+      const client = new Client({ source });
+      await expect(
+        collect(client.streamEvents({ address: ADDR_A }, { addresses: [ADDR_A] })),
+      ).rejects.toThrow(/not opts\.addresses/);
+    });
+  });
+
   describe("streamEvents eventTopics filter", () => {
     const DEP = "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196" as const;
     const WD = "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931" as const;
