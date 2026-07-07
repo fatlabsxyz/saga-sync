@@ -75,12 +75,12 @@ writes are serialized).
 
 3. **Deploy** everything else:
    ```sh
-   PROJECT=my-proj BUCKET=pp-state ./deploy/cloud-run-job.sh
+   PROJECT=my-proj BUCKET=my-state-bucket ./deploy/cloud-run-job.sh
    ```
 4. **Smoke test** a one-off run, then watch it land:
    ```sh
    gcloud run jobs execute scraper-daily --project "$PROJECT" --region us-central1
-   gcloud storage ls -l gs://pp-state/**
+   gcloud storage ls -l gs://my-state-bucket/**
    ```
 
 ## Serving + caching
@@ -88,7 +88,7 @@ writes are serialized).
 The bucket is public-read and the canonical read endpoint is **Cloud CDN** in
 front of it. Make the bucket public once:
 ```sh
-gcloud storage buckets add-iam-policy-binding gs://pp-state \
+gcloud storage buckets add-iam-policy-binding gs://my-state-bucket \
   --member=allUsers --role=roles/storage.objectViewer
 ```
 Caching is handled at write time: `GcsStore` sets per-object `Cache-Control` on
@@ -101,7 +101,7 @@ public objects, so a fresh manifest is visible within ~30s.
 ### Cloud CDN (`deploy/cdn.sh`)
 Provision an external HTTP load balancer with a CDN-enabled backend bucket:
 ```sh
-PROJECT=privacy-protocols BUCKET=pp-state ./deploy/cdn.sh
+PROJECT=my-proj BUCKET=my-state-bucket ./deploy/cdn.sh
 ```
 The script is idempotent (describe-then-create) and prints the canonical
 endpoint `http://<lb-ip>/index.json` on completion. It sets cache mode
@@ -127,7 +127,7 @@ print that as the consumer read URL. The client CLI takes the endpoint as its
 - **Alerts** — pass an email and the deploy script wires two Cloud Monitoring
   policies (email notification channel + policies, all idempotent by display name):
   ```sh
-  PROJECT=my-proj BUCKET=pp-state ALERT_EMAIL=you@example.com ./deploy/cloud-run-job.sh
+  PROJECT=my-proj BUCKET=my-state-bucket ALERT_EMAIL=you@example.com ./deploy/cloud-run-job.sh
   ```
   1. **`<job> job failed`** — fires on `completed_execution_count{result="failed"}`,
      i.e. an execution ran and exited non-zero.

@@ -4,7 +4,7 @@
   "description": "Verifiable privacy-protocol state distribution — workspace root",
   "type": "module",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/fatlabsxyz/privacy-protocol-state-distribution.git"

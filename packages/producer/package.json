@@ -2,7 +2,7 @@
   "name": "@saga-sync/producer",
   "version": "0.1.3",
   "description": "Producer side of saga-sync: scraper, chunk-builder, orchestrator, and cloud stores",
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/fatlabsxyz/saga-sync.git",

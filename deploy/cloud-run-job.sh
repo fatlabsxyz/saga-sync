@@ -13,8 +13,8 @@ IMAGE="${IMAGE:-$REGION-docker.pkg.dev/$PROJECT/$REPO/scraper}"
 TAG="${TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo latest)}"
 BUILD="${BUILD:-cloud}"                                  # cloud | local | skip
 
-BUCKET="${BUCKET:?set BUCKET=your-state-bucket (output; e.g. pp-state)}"
-# Overridable so a second chain can write under a prefix (e.g. gs://pp-state/sepolia).
+BUCKET="${BUCKET:?set BUCKET=your-state-bucket (output)}"
+# Overridable so a second chain can write under a prefix (e.g. gs://my-state-bucket/sepolia).
 OUTPUT_URI="${OUTPUT_URI:-gs://$BUCKET}"
 CONFIG_URI="${CONFIG_URI:-gs://$BUCKET/publish-config.json}"
 # Local config file uploaded to CONFIG_URI, and the RPC secret bound as $RPC.

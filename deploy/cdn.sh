@@ -14,7 +14,7 @@ set -euo pipefail
 
 # ---- fill these in (or export before running) ----
 PROJECT="${PROJECT:?set PROJECT=your-gcp-project-id}"
-BUCKET="${BUCKET:?set BUCKET=your-state-bucket (e.g. pp-state)}"
+BUCKET="${BUCKET:?set BUCKET=your-state-bucket}"
 
 IP_NAME="${IP_NAME:-pp-state-ip}"                        # reserved global anycast IP
 BACKEND="${BACKEND:-pp-state-backend}"                   # CDN-enabled backend bucket
