@@ -17,6 +17,11 @@ privacy-pools-config.json
 pp-chunks/
 pp-cache/
 measurements/
+pp-measure.sh
+pp-measure.log
+
+# Local agent instructions — not part of the public repo
+CLAUDE.md
 
 # Orchestrator lockfiles (publish.sh)
 .locks/
