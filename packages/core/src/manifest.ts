@@ -275,6 +275,20 @@ export class Manifest {
     return this.touch();
   }
 
+  // Drop a stream entirely — its metadata and every chunk pointer. No-ops on an
+  // unknown id. This only removes the index entry; deleting the chunk objects it
+  // pointed at is the caller's job (they are no longer referenced either way).
+  //
+  // The one mutation that is not part of the normal publish loop: a stream is
+  // retired when its published chunks are known to be wrong (e.g. scraped under
+  // an incomplete event-topic set), which the block-range bookkeeping cannot
+  // detect on its own.
+  removeProtocol(protocolId: string): Promise<void> {
+    if (this.data.availableProtocols[protocolId] === undefined) return Promise.resolve();
+    delete this.data.availableProtocols[protocolId];
+    return this.touch();
+  }
+
   // Fill a stream's descriptive metadata — WRITE-ONCE: only fields still unset
   // are populated, so config edits to an existing stream do not propagate (its
   // metadata describes chunks already published under the original values).

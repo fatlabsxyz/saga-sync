@@ -167,6 +167,7 @@ now live with the code they describe:
 | [`packages/core/README.md`](packages/core/README.md) | the `Store` seam, the `Manifest` class API, sha256/Ed25519 crypto, shared `CanonicalEvent`/`Hex` types |
 | [`packages/producer/README.md`](packages/producer/README.md) | the scraper / chunk-builder / orchestrator CLIs (flags + worked examples), module internals, every input/output data format, the producer invariants, and publishing to GCS |
 | [`packages/client/README.md`](packages/client/README.md) | the `Client` library (streaming, filters, verification, signatures) and the `state-client` CLI |
+| [`docs/RAILGUN.md`](docs/RAILGUN.md) | consuming the Railgun stream — the event set across the contract's V1/V2.0/V2.1 upgrades, leaf-position and leaf-hash rules, the mapping to kohaku's `UtxoSyncer`, and what is deliberately not served |
 | [`DEPLOY.md`](DEPLOY.md) | running the producer as a Cloud Run Job + Scheduler behind Cloud CDN |
 | [`SPEC.md`](SPEC.md) | the normative wire spec; the **algorithms & invariants** a replica must honor are stated here, with the producer README giving the operational restatement |
 

@@ -122,6 +122,29 @@ describe("Manifest", () => {
     expect(reloaded.availableProtocols["proto-a"]?.hotHead).toBeUndefined();
   });
 
+  it("removeProtocol drops the stream and persists its absence", async () => {
+    const m = await Manifest.load(store);
+    await m.appendChunk("proto-a", meta());
+    await m.appendChunk("proto-b", meta());
+    await m.setHotHead("proto-a", meta());
+    await m.setProtocolMeta("proto-a", { protocol: "doomed" });
+    await m.removeProtocol("proto-a");
+    expect(m.protocolIds()).toEqual(["proto-b"]);
+    expect(m.hotHead("proto-a")).toBeUndefined();
+    expect(m.protocolName("proto-a")).toBeUndefined();
+    await m.flush();
+    const reloaded = await Manifest.load(store);
+    expect(reloaded.protocolIds()).toEqual(["proto-b"]);
+    expect(reloaded.sealedChunks("proto-b")).toHaveLength(1);
+  });
+
+  it("removeProtocol is a no-op on an unknown stream", async () => {
+    const m = await Manifest.load(store);
+    await m.appendChunk("proto-a", meta());
+    await m.removeProtocol("nope");
+    expect(m.protocolIds()).toEqual(["proto-a"]);
+  });
+
   it("throws on a corrupt manifest rather than silently resetting", async () => {
     writeFileSync(join(dir, "index.json"), "{ not valid json", "utf8");
     await expect(Manifest.load(store)).rejects.toThrow();
