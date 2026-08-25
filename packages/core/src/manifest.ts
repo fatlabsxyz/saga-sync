@@ -412,6 +412,13 @@ export class Manifest {
     // is the original bare-hex Ed25519 signature, still written so already-pinned
     // consumers keep verifying without an upgrade. `.sig` is written last for the
     // same ordering reason.
+    // Any signature file this write does NOT refresh is deleted rather than left
+    // behind. A stale signature is strictly worse than a missing one: it still
+    // parses, the consumer prefers `.sigs` over `.sig`, and verification fails
+    // for everyone — whereas a missing `.sigs` simply falls back to `.sig`.
+    // (Learned the hard way: a maintenance script signing with only the legacy
+    // Ed25519 signer refreshed `.sig`, left `.sigs` signed over the previous
+    // manifest, and broke every verifying consumer of a live bucket.)
     const encoder = new TextEncoder();
     if (this.signers.length > 0) {
       const entries = this.signers.map((s) => ({
@@ -423,9 +430,12 @@ export class Manifest {
       const ed25519 = entries.find((e) => e.alg === "ed25519");
       if (ed25519) {
         await this.store.put(`${this.key}.sig`, encoder.encode(ed25519.signature + "\n"));
+      } else {
+        await this.store.delete(`${this.key}.sig`); // no Ed25519 key: nothing valid to leave there
       }
     } else if (this.signer) {
       await this.store.put(`${this.key}.sig`, encoder.encode(this.signer(bytes) + "\n"));
+      await this.store.delete(`${this.key}.sigs`); // legacy signer cannot fill an envelope
     }
   }
 }

@@ -82,12 +82,12 @@ SECP_PUBLIC_KEY=""
 # Resolve the optional secp256k1 key first, so it is reported whichever way the
 # Ed25519 key was supplied.
 if [ -n "${MANIFEST_SIGNING_KEY_SECP256K1:-}" ]; then
-  SECP_PUBLIC_KEY=$(node -e 'Promise.all([import("@saga-sync/core"),import("@saga-sync/core/secp256k1")]).then(([m])=>console.log(m.publicKeyFromSecret(process.argv[1],"secp256k1"))).catch(e=>{console.error(e.message);process.exit(1)})' "$MANIFEST_SIGNING_KEY_SECP256K1") \
+  SECP_PUBLIC_KEY=$(node -e 'Promise.all([import("./packages/core/dist/index.js"),import("./packages/core/dist/secp256k1.js")]).then(([m])=>console.log(m.publicKeyFromSecret(process.argv[1],"secp256k1"))).catch(e=>{console.error(e.message);process.exit(1)})' "$MANIFEST_SIGNING_KEY_SECP256K1") \
     || fail "MANIFEST_SIGNING_KEY_SECP256K1 is not a valid 0x-hex secp256k1 secret"
   export MANIFEST_SIGNING_KEY_SECP256K1
 fi
 if [ -n "${MANIFEST_SIGNING_KEY:-}" ]; then
-  PUBLIC_KEY=$(node -e 'import("@saga-sync/core").then(m=>console.log(m.publicKeyFromSecret(process.argv[1]))).catch(e=>{console.error(e.message);process.exit(1)})' "$MANIFEST_SIGNING_KEY") \
+  PUBLIC_KEY=$(node -e 'import("./packages/core/dist/index.js").then(m=>console.log(m.publicKeyFromSecret(process.argv[1]))).catch(e=>{console.error(e.message);process.exit(1)})' "$MANIFEST_SIGNING_KEY") \
     || fail "MANIFEST_SIGNING_KEY is not a valid 0x-hex Ed25519 secret"
   export MANIFEST_SIGNING_KEY
   log "signing ENABLED — ed25519 public key: $PUBLIC_KEY"

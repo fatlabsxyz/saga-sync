@@ -20,7 +20,12 @@
 //   node packages/producer/scripts/retire-stream.mjs \
 //     --output-dir gs://pp-state --protocol railgun-1-main [--yes]
 
-import { Manifest, signerFromEnv } from "@saga-sync/core";
+import { Manifest, signersFromEnv } from "@saga-sync/core";
+// Registers secp256k1 so a bucket signed with both keys keeps BOTH signature
+// files in sync. Signing with only the Ed25519 key would refresh index.json.sig
+// but leave index.json.sigs signed over the pre-retirement manifest — and the
+// client prefers the envelope, so every verifying consumer would break.
+import "@saga-sync/core/secp256k1";
 import { createStore, parseStoreTarget } from "../dist/storage/index.js";
 
 function fail(msg) {
@@ -55,9 +60,9 @@ function parseArgs(argv) {
 async function main() {
   const { target, protocol, apply } = parseArgs(process.argv.slice(2));
 
-  const signer = signerFromEnv();
+  const signers = signersFromEnv();
   const store = createStore({ ...parseStoreTarget(target), dryRun: false });
-  const manifest = await Manifest.load(store, "index.json", signer ? { signer } : {});
+  const manifest = await Manifest.load(store, "index.json", signers.length ? { signers } : {});
 
   if (!manifest.protocolIds().includes(protocol)) {
     fail(`manifest at ${target} has no stream "${protocol}" (has: ${manifest.protocolIds().join(", ")})`);
@@ -71,7 +76,13 @@ async function main() {
   console.log(`stream:    ${protocol} @ ${target}`);
   console.log(`covers:    ${manifest.firstCoveredBlock(protocol)} → ${manifest.lastCoveredBlock(protocol)}`);
   console.log(`objects:   ${files.length} (${sealed.length} sealed${hot ? " + 1 hot head" : ""}), ${(bytes / 1e6).toFixed(1)} MB`);
-  console.log(`signing:   ${signer ? "enabled" : "DISABLED — the rewritten manifest will be unsigned"}`);
+  console.log(
+    `signing:   ${
+      signers.length
+        ? signers.map((s) => s.alg).join(" + ")
+        : "DISABLED — the rewritten manifest will be unsigned"
+    }`,
+  );
 
   if (!apply) {
     console.log("\ndry run — nothing changed. Re-run with --yes to apply.");

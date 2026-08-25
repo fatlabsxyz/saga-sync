@@ -325,6 +325,54 @@ describe("Manifest", () => {
       expect(() => verifyManifestSignature(manifestBytes, legacy, ed.publicKey)).not.toThrow();
     });
 
+    it("a legacy signer DELETES a pre-existing envelope instead of leaving it stale", async () => {
+      // The real incident: a maintenance script rewrote the manifest signing with
+      // only the Ed25519 key. `.sig` was fresh, `.sigs` still signed the previous
+      // manifest, and because the client prefers the envelope every verifying
+      // consumer broke. A missing `.sigs` falls back to `.sig` and verifies.
+      const ed = generateKeyPair("ed25519");
+      const k1 = generateKeyPair("secp256k1");
+      const first = await Manifest.load(store, undefined, {
+        signers: [createSigner(ed.secretKey, "ed25519"), createSigner(k1.secretKey, "secp256k1")],
+      });
+      await first.appendChunk("proto", meta({ toBlock: "0x10" }));
+      await first.flush();
+      expect(await store.get("index.json.sigs")).not.toBeNull();
+
+      const second = await Manifest.load(store, undefined, {
+        signer: (bytes) => signManifest(bytes, ed.secretKey),
+      });
+      await second.appendChunk("proto", meta({ toBlock: "0x20" }));
+      await second.flush();
+
+      expect(await store.get("index.json.sigs")).toBeNull();
+      const body = (await store.get("index.json"))!;
+      const legacy = new TextDecoder().decode((await store.get("index.json.sig"))!).trim();
+      expect(() => verifyManifestSignature(body, legacy, ed.publicKey)).not.toThrow();
+    });
+
+    it("a secp256k1-only signer DELETES a pre-existing legacy .sig", async () => {
+      // Mirror image: leaving an Ed25519 .sig behind would strand old clients on
+      // a signature over a manifest that no longer exists.
+      const ed = generateKeyPair("ed25519");
+      const k1 = generateKeyPair("secp256k1");
+      const first = await Manifest.load(store, undefined, {
+        signers: [createSigner(ed.secretKey, "ed25519")],
+      });
+      await first.appendChunk("proto", meta({ toBlock: "0x10" }));
+      await first.flush();
+      expect(await store.get("index.json.sig")).not.toBeNull();
+
+      const second = await Manifest.load(store, undefined, {
+        signers: [createSigner(k1.secretKey, "secp256k1")],
+      });
+      await second.appendChunk("proto", meta({ toBlock: "0x20" }));
+      await second.flush();
+
+      expect(await store.get("index.json.sig")).toBeNull();
+      expect(await store.get("index.json.sigs")).not.toBeNull();
+    });
+
     it("omits the legacy .sig when no Ed25519 signer is configured", async () => {
       const k1 = generateKeyPair("secp256k1");
       const m = await Manifest.load(store, undefined, {

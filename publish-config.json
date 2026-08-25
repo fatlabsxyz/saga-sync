@@ -830,33 +830,6 @@
         }
       ]
     },
-    "railgun-1-main": {
-      "chainId": "0x1",
-      "fromBlock": "0xe03295",
-      "chunkSettings": {
-        "maxSizeBytes": "0xa00000"
-      },
-      "protocol": "railgun",
-      "protocolMetadata": {},
-      "events": [
-        {
-          "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
-          "eventTopic": "0xc3821e11e71307afd1d94a490660178ff37aefdd3c0514e5dd08937bd7024f34"
-        },
-        {
-          "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
-          "eventTopic": "0x56a618cda1e34057b7f849a5792f6c8587a2dbe11c83d0254e72cb3daffda7d1"
-        },
-        {
-          "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
-          "eventTopic": "0xd93cf895c7d5b2cd7dc7a098b678b3089f37d91f48d9b83a0800a91cbdf05284"
-        },
-        {
-          "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
-          "eventTopic": "0x781745c57906dc2f175fec80a9c691744c91c48a34a83672c41c2604774eb11f"
-        }
-      ]
-    },
     "railgun-1-smartwallet": {
       "chainId": "0x1",
       "fromBlock": "0xe03295",
