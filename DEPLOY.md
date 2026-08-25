@@ -88,6 +88,17 @@ writes are serialized).
    ```sh
    PROJECT=my-proj BUCKET=my-state-bucket ./deploy/cloud-run-job.sh
    ```
+   The image is built **locally by default** (`BUILD=local`), so a running Docker
+   daemon is required. That is deliberate: Cloud Build needs the build service
+   account (`$PROJECT_NUMBER-compute@developer.gserviceaccount.com`) to hold
+   `roles/cloudbuild.builds.builder` for source access, and granting it needs
+   project IAM admin — which has repeatedly not been available here, so
+   `BUILD=cloud` fails with a 403 on the source tarball. Grant that role if you
+   want `BUILD=cloud`; use `BUILD=skip` to redeploy an image already in Artifact
+   Registry at `$IMAGE:$TAG` (handy for a config- or alert-only change).
+
+   `TAG` defaults to `git rev-parse --short HEAD`, so **commit before deploying**
+   or the image tag will not describe what is in it.
 4. **Smoke test** a one-off run, then watch it land:
    ```sh
    gcloud run jobs execute scraper-daily --project "$PROJECT" --region us-central1
