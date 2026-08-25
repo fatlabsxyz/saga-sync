@@ -222,4 +222,12 @@ TXID/POI.
 - **Provenance.** `protocolMetadata.source` records that a stream mirrors a
   third-party index, since §10's reproducibility argument does not hold for it.
 
+- **Fixed-width payload fields are padded.** SPEC §3.4 now requires an ABI
+  `bytes32` to be emitted at full width. The RAILGUN squid strips leading zero
+  bytes (2,879 `boundParamsHash` at 31 bytes, 14 at 30, 22 nullifiers, 42
+  commitments over the full history); passing that through made the bytes depend
+  on the indexer's formatting, which would have stopped a calldata-derived source
+  from ever matching them. Caught by checking our output against kohaku's
+  deserializers, after the stream had already been published once.
+
 The chunk builder needed no changes — it only ever reads `blockNumber`.

@@ -167,6 +167,8 @@ followed by payload fields, whose names and order are fixed by the `entity` kind
 
 The ordering triple is deliberately a **chain coordinate**, not an indexer's row identifier. This is what lets an independent implementation — one deriving the same records from calldata rather than mirroring an index — produce byte-identical output.
 
+For the same reason, a payload field whose underlying type is **fixed-width** (e.g. an ABI `bytes32`) MUST be emitted at its full width, zero-padded. Indexers commonly strip leading zero bytes; passing that through would make the published bytes depend on the upstream's formatting rather than on the value, and two implementations of the same record would disagree. Quantities remain minimal hex per §3.3 — the distinction is that a quantity has no width, a fixed-width type does.
+
 Two constraints:
 
 - **A stream carries one kind.** Logs and entity records MUST NOT be mixed within a stream. A log can be re-verified against an archive node; an entity record is a derivation and cannot. Interleaving them would let derived data shelter among independently checkable data.

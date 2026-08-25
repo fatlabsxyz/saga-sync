@@ -283,14 +283,17 @@ function decodeOurs(events) {
 // An operation's identity: its chain coordinate plus every field kohaku feeds
 // into the TXID tree. Comparing the whole payload — not just the coordinate —
 // is what makes this a real check rather than a row count.
+// Every component is compared by VALUE, not by its text. We emit bytes32 fields
+// zero-padded to a full word; the squid strips leading zeros. Comparing strings
+// would report thousands of spurious differences for identical values.
 const operationKey = (o) =>
   [
     dec(o.blockNumber),
     dec(o.transactionIndex),
     dec(o.opIndex),
-    (o.nullifiers ?? []).map(lower).join(","),
-    (o.commitments ?? []).map(lower).join(","),
-    lower(o.boundParamsHash),
+    (o.nullifiers ?? []).map(dec).join(","),
+    (o.commitments ?? []).map(dec).join(","),
+    dec(o.boundParamsHash),
     dec(o.utxoTreeIn),
     dec(o.utxoTreeOut),
     dec(o.utxoBatchStartPositionOut),

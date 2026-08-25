@@ -130,9 +130,43 @@ These are **entity records**, not logs (SPEC §3.4) — they carry an `entity` f
 and sort by `(blockNumber, transactionIndex, opIndex)` rather than
 `(blockNumber, logIndex)`. A stream never mixes the two kinds, so
 `railgun-1-smartwallet` is all logs and `railgun-1-ops-subsquid` is all
-operations. Map them onto kohaku's `OperationsQuery` field for field; the ordering
-triple is chronological, which is what `txid_indexer` requires when appending to
-the TXID tree.
+operations. The ordering triple is chronological, which is what `txid_indexer`
+requires when appending to the TXID tree.
+
+### 5.1 Mapping onto kohaku's `Operation`
+
+Field names match the squid's, so the mapping is one-to-one. The **encodings** are
+not all the same, because this format uses minimal `0x`-hex for every quantity
+(SPEC §3.3) while the squid returns decimal strings for some:
+
+| field | kohaku's `subsquid_types::Operation` | here | conversion |
+|---|---|---|---|
+| `boundParamsHash` | `U256` | `0x…` (32 bytes) | none |
+| `nullifiers[]` | `Vec<U256>` | `0x…` (32 bytes) | none |
+| `commitments[]` | `Vec<U256>` | `0x…` (32 bytes) | none |
+| `blockNumber` | `deserialize_string_to_u64` (decimal) | `0x189ad7b` | `u64::from_str_radix(s.trim_start_matches("0x"), 16)` |
+| `utxoTreeIn` | `deserialize_string_to_u32` (decimal) | `0x3` | as above, `u32` |
+| `utxoTreeOut` | `deserialize_string_to_u32` (decimal) | `0x3` | as above, `u32` |
+| `utxoBatchStartPositionOut` | `deserialize_string_to_u32` (decimal) | `0xf167` | as above, `u32` |
+
+The `U256` fields need no conversion: ruint's deserializer takes `0x`-hex, which
+is what both the squid and this stream emit. Note kohaku's struct is a **GraphQL
+wire type** — an adapter reading these chunks parses NDJSON and builds
+`syncer::Operation` directly, so it never uses that struct anyway.
+
+Two things not to trip over:
+
+- **`bytes32` values are always a full 32-byte word here.** The squid strips
+  leading zero bytes (measured over the full history: 2,879 `boundParamsHash` at
+  31 bytes, 14 at 30, plus 22 nullifiers and 42 commitments), which would make the
+  published bytes depend on an indexer's formatting and prevent a calldata-derived
+  source from ever matching them. They are re-padded here. The numeric value is
+  identical either way, so a `U256` parse is unaffected.
+- **`utxoTreeOut` / `utxoBatchStartPositionOut` of `99999` is a sentinel**, not a
+  tree index — it means "no UTXO output", and appears on unshield-only
+  transactions (12,071 of 128,888 records). It is passed through verbatim because
+  kohaku feeds it straight into `UtxoTreeIndex::included()`, so the value lands in
+  the TXID leaf hash as-is. Do not treat it as a real position.
 
 **Read the provenance before you trust it.** This stream is **mirrored from the
 RAILGUN Subsquid index**, not derived from chain data — `protocolMetadata.source`

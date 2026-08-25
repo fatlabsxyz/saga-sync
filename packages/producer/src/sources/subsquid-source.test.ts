@@ -96,6 +96,36 @@ describe("toCanonicalOperation", () => {
     expect(rec.utxoTreeIn).toBe("0x0");
   });
 
+  it("PADS bytes32 fields the squid returned with leading zeros stripped", () => {
+    // The squid emits minimal-width hex for bytes32. Passing that through would
+    // make our bytes depend on its formatting, so a calldata-derived source could
+    // never match them.
+    const short = rawOp(1n, 0n, 0n, {
+      nullifiers: ["0x320f842b8835f5983636b535fb4af0701a8a1cfb225fa269eb6f8f5f8fb381"], // 31 bytes
+      commitments: ["0x1"],
+      boundParamsHash: "0x0abc",
+    });
+    const rec = toCanonicalOperation(short as never, "e");
+    expect(rec.nullifiers).toEqual([
+      "0x00320f842b8835f5983636b535fb4af0701a8a1cfb225fa269eb6f8f5f8fb381",
+    ]);
+    expect(rec.commitments).toEqual([`0x${"0".repeat(63)}1`]);
+    expect(rec.boundParamsHash).toBe(`0x${"0".repeat(60)}0abc`);
+    for (const v of [...(rec.nullifiers as string[]), ...(rec.commitments as string[]), rec.boundParamsHash as string])
+      expect(v).toHaveLength(66);
+  });
+
+  it("leaves an already-padded 32-byte value untouched", () => {
+    const full = `0x${"ab".repeat(32)}`;
+    const rec = toCanonicalOperation(rawOp(1n, 0n, 0n, { boundParamsHash: full }) as never, "e");
+    expect(rec.boundParamsHash).toBe(full);
+  });
+
+  it("refuses a bytes32 field wider than 32 bytes rather than truncating", () => {
+    const bad = rawOp(1n, 0n, 0n, { boundParamsHash: `0x${"ff".repeat(33)}` });
+    expect(() => toCanonicalOperation(bad as never, "e")).toThrow(/exceeds 32 bytes/);
+  });
+
   it("refuses a row whose id block disagrees with its blockNumber column", () => {
     const bad = rawOp(10n, 0n, 0n, { blockNumber: "11" });
     expect(() => toCanonicalOperation(bad as never, "e")).toThrow(/disagrees/);

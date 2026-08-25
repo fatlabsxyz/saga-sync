@@ -53,13 +53,28 @@ function quantity(value: string | number | bigint, field: string): Hex {
   return `0x${n.toString(16)}` as Hex;
 }
 
-// Byte strings stay byte strings — lowercased, zero-padding preserved, because
-// unlike a quantity their length is meaningful.
-function bytes(value: string, field: string): Hex {
+// Nullifiers, commitments and boundParamsHash are `bytes32` in the contract ABI,
+// so they are emitted as a full 32-byte word — always 0x + 64 hex digits.
+//
+// The squid does NOT do this: it strips leading zero bytes, so the same value can
+// come back 30, 31 or 32 bytes wide (measured over the full history: 2,879
+// boundParamsHash at 31 bytes, 14 at 30, 22 nullifiers and 42 commitments short).
+// Passing that through would make our bytes depend on an indexer's formatting —
+// a calldata-derived source would naturally emit the padded form and the two
+// would disagree, breaking the point of a source-independent record. It would
+// also render the same nullifier differently here than when decoded from a log.
+//
+// Re-rendering from the integer value is lossless for a fixed-width type and
+// makes the output depend only on the value.
+function bytes32(value: string, field: string): Hex {
   if (typeof value !== "string" || !/^0x[0-9a-fA-F]*$/.test(value)) {
     throw new Error(`subsquid: ${field} is not 0x-hex: ${JSON.stringify(value)}`);
   }
-  return value.toLowerCase() as Hex;
+  const hex = BigInt(value).toString(16);
+  if (hex.length > 64) {
+    throw new Error(`subsquid: ${field} exceeds 32 bytes: ${JSON.stringify(value)}`);
+  }
+  return `0x${hex.padStart(64, "0")}` as Hex;
 }
 
 type RawOperation = {
@@ -110,9 +125,9 @@ export function toCanonicalOperation(raw: RawOperation, entity: string): Canonic
     blockNumber: fromBlock,
     transactionIndex: quantity(id.transactionIndex, "transactionIndex"),
     opIndex: quantity(id.opIndex, "opIndex"),
-    nullifiers: raw.nullifiers.map((n, i) => bytes(n, `nullifiers[${i}]`)),
-    commitments: raw.commitments.map((c, i) => bytes(c, `commitments[${i}]`)),
-    boundParamsHash: bytes(raw.boundParamsHash, "boundParamsHash"),
+    nullifiers: raw.nullifiers.map((n, i) => bytes32(n, `nullifiers[${i}]`)),
+    commitments: raw.commitments.map((c, i) => bytes32(c, `commitments[${i}]`)),
+    boundParamsHash: bytes32(raw.boundParamsHash, "boundParamsHash"),
     utxoTreeIn: quantity(raw.utxoTreeIn, "utxoTreeIn"),
     utxoTreeOut: quantity(raw.utxoTreeOut, "utxoTreeOut"),
     utxoBatchStartPositionOut: quantity(
