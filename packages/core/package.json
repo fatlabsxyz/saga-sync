@@ -22,9 +22,14 @@
     "./node": {
       "types": "./dist/node.d.ts",
       "default": "./dist/node.js"
+    },
+    "./secp256k1": {
+      "types": "./dist/secp256k1.d.ts",
+      "default": "./dist/secp256k1.js"
     }
   },
   "files": ["dist"],
+  "sideEffects": ["./dist/secp256k1.js"],
   "scripts": {
     "build": "tsc -b"
   },

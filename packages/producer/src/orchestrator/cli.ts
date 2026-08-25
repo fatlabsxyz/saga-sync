@@ -18,7 +18,9 @@ import { loadAllProtocols } from "../scraper/config.js";
 import type { ScraperTarget } from "../scraper/config.js";
 import { createStore, parseStoreTarget } from "../storage/index.js";
 import { Manifest } from "@saga-sync/core";
-import { signerFromEnv } from "@saga-sync/core";
+import { signersFromEnv } from "@saga-sync/core";
+// Registers secp256k1 so MANIFEST_SIGNING_KEY_SECP256K1 is honoured.
+import "@saga-sync/core/secp256k1";
 import type { ChunkMeta } from "@saga-sync/core";
 import { ChunkArchive } from "../chunk-builder/archive.js";
 import { runProtocolOnce } from "./pipeline.js";
@@ -326,7 +328,7 @@ async function main(): Promise<void> {
   const protocols = loadAllProtocols(args.configPath);
   const store = createStore({ ...storeConfig, dryRun: args.dryRun });
   const archive = new ChunkArchive(store);
-  const manifest = await Manifest.load(store, undefined, { signer: signerFromEnv() });
+  const manifest = await Manifest.load(store, undefined, { signers: signersFromEnv() });
 
   const client: PublicClient = createRpcClient(args.rpc);
   const tip =

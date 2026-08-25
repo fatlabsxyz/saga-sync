@@ -318,20 +318,30 @@ The manifest is the trust root: clients rely on it to discover chunks and their 
 
 ### 9.1 Scheme (implemented)
 
-- **Algorithm: Ed25519** (raw 32-byte keys). Isomorphic across Node and browsers, and consistent with the SHA-256 digests used elsewhere — no extra primitives.
-- **Detached signature.** Computed over the exact `index.json` bytes and published alongside it as **`index.json.sig`** — a single `0x`-hex string, like every other hash/key in the system. Signing the manifest transitively authenticates every chunk, since each chunk's digest is in the manifest; there are no per-chunk signatures.
-- **Producer** signs unconditionally whenever a signing key is configured (`MANIFEST_SIGNING_KEY`, a `0x`-hex Ed25519 secret). The signature is rewritten on every manifest update. With no key configured the manifest is simply unsigned (still digest-verifiable).
-- **Consumer** verifies only when a public key is configured (e.g. `--public-key <hex>` in the reference client). When enabled, verification is **mandatory** and runs over the raw bytes *before* parsing: a missing `.sig` or a mismatch is a hard error. With no public key configured the consumer skips signature checks (chunk digests are still enforced).
+- **Detached signatures.** Computed over the exact `index.json` bytes. Signing the manifest transitively authenticates every chunk, since each chunk's digest is in the manifest; there are no per-chunk signatures.
+- **Algorithms.** **Ed25519** (raw 32-byte keys) is the baseline: isomorphic across Node and browsers, and consistent with the SHA-256 digests used elsewhere. **secp256k1** (ECDSA) is also defined, for consumers whose key material is Ethereum-shaped — 33-byte compressed public keys (65-byte uncompressed accepted on verify) and 64-byte compact `r‖s` signatures. Because ECDSA signs a digest rather than a message, a secp256k1 signature is over **`sha256(index.json bytes)`**; Ed25519 signs the bytes directly.
+- **Two published objects.**
+  - **`index.json.sigs`** — the signature envelope, and the form new implementations should write and prefer to read:
+    ```json
+    { "version": 1,
+      "signatures": [ { "alg": "ed25519", "publicKey": "0x…", "signature": "0x…" } ] }
+    ```
+    Every entry signs the identical manifest bytes. Unknown `alg` values MUST be skipped, not rejected — a manifest may carry algorithms a given client cannot verify.
+  - **`index.json.sig`** — the original single Ed25519 signature as a bare `0x`-hex string. Still written whenever an Ed25519 key is configured, so consumers pinned to it keep verifying. A producer with no Ed25519 key writes only the envelope.
+- **Producer** signs unconditionally whenever at least one signing key is configured (`MANIFEST_SIGNING_KEY` for Ed25519, `MANIFEST_SIGNING_KEY_SECP256K1` for secp256k1, both `0x`-hex secrets). Signatures are rewritten on every manifest update. With no key configured the manifest is simply unsigned (still digest-verifiable).
+- **Consumer** verifies only when a public key is configured (e.g. `--public-key <hex>`, repeatable, in the reference client). When enabled, verification is **mandatory** and runs over the raw bytes *before* parsing: a missing signature file or a mismatch is a hard error. A key's algorithm is inferred from its byte length (32 → Ed25519, 33/65 → secp256k1). With no public key configured the consumer skips signature checks (chunk digests are still enforced).
 
-`index.json` and `index.json.sig` are two separate objects, not written atomically; a consumer that fetches a mismatched pair mid-publish fails verification and should retry.
+**Any-signature acceptance, and what it costs.** A manifest is accepted when **any** pinned key verifies a signature of its own algorithm. That makes the trust root only as strong as the **weakest** configured key: an attacker holding any one publisher secret can forge a manifest every client accepts. Multiple algorithms are therefore a **reach** feature — they let a consumer verify with the key material it already has — and not a strengthening. An implementation wanting stronger guarantees needs k-of-n acceptance, which this spec does not define.
+
+`index.json` and its signature objects are written separately, not atomically; a consumer that fetches a mismatched pair mid-publish fails verification and should retry.
 
 ### 9.2 Open topics (future work)
 
 Signing authenticates the *publisher*, not data correctness (reproducibility + on-chain key anchoring cover that). Still open:
 
 - **Key distribution.** How a client learns which public key(s) to trust — planned to be anchored in an on-chain registry, which only changes *where* the consumer reads the key, not the verification above.
-- **Key rotation / revocation.** Updating keys without breaking existing clients.
-- **Multi-signer.** Whether multiple independent scrapers can co-sign one manifest for stronger guarantees.
+- **Key rotation / revocation.** Updating keys without breaking existing clients. The intended mechanism is **cross-signing**: a `keys.json` listing the publisher's keys, each key signing the list, so a client pinning any one key can learn the others. Note this propagates compromise exactly as it propagates trust — it solves rotation, not strength.
+- **Multi-signer.** Whether multiple *independent* scrapers can co-sign one manifest for stronger guarantees. Distinct from §9.1's multiple algorithms, which are one publisher holding several keys; this would require k-of-n acceptance.
 
 ## 10. Reproducibility
 

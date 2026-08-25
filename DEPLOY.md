@@ -64,6 +64,17 @@ writes are serialized).
      | gcloud secrets create scraper-signing-key \
          --project "$PROJECT" --replication-policy=automatic --data-file=-
    ```
+
+   **Optional third secret — a secp256k1 key.** The manifest can carry one
+   signature per algorithm, letting a consumer verify with Ethereum-shaped key
+   material. Mint it with `node packages/producer/dist/keygen.js --alg secp256k1`
+   and store it as `scraper-signing-key-secp256k1`; the job reads it as
+   `MANIFEST_SIGNING_KEY_SECP256K1`. Same identity rule — generate once, keep it
+   stable.
+
+   Understand the trade before adding one: a consumer is accepted by **any**
+   single signature, so a second key is a second way to forge a manifest. It buys
+   reach, not strength (SPEC §9.1).
    IAM is handled for you — the deploy script grants the job's service account
    `secretAccessor` on both and binds them as the `RPC` / `MANIFEST_SIGNING_KEY`
    env vars (`:latest`). To rotate the RPC later without touching the signing key,
@@ -94,7 +105,7 @@ gcloud storage buckets add-iam-policy-binding gs://my-state-bucket \
 Caching is handled at write time: `GcsStore` sets per-object `Cache-Control` on
 every `put` (`cacheControlFor` in `packages/producer/src/storage/gcs-store.ts`): sealed chunks are
 digest-addressed and immutable → `public, max-age=31536000, immutable`;
-`index.json`/`index.json.sig`/the hot head mutate every run → `public,
+`index.json`/its signature files/the hot head mutate every run → `public,
 max-age=30`. These explicit headers override GCS's default 1-hour cache on
 public objects, so a fresh manifest is visible within ~30s.
 

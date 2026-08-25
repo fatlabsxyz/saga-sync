@@ -18,9 +18,11 @@ export type ClientOptions = {
   // Max concurrent chunk fetches. Most network time is RTT-bound, so a small
   // value (default 4) is plenty.
   concurrency?: number;
-  // 0x-hex Ed25519 public key. When set, the manifest's detached signature is
-  // verified against it on every fetch (missing/mismatched signature throws).
-  publicKey?: string;
+  // 0x-hex publisher public key, or several. When set, the manifest's detached
+  // signature is verified on every fetch (missing/mismatched signature throws).
+  // The algorithm is inferred from each key's length; verification passes if any
+  // configured key verifies. See `LoadManifestOptions.publicKey`.
+  publicKey?: string | string[];
 };
 
 export type StreamOptions = {
@@ -64,7 +66,7 @@ export class Client {
   private readonly source: Store;
   private readonly cache: Store | undefined;
   private readonly concurrency: number;
-  private readonly publicKey: string | undefined;
+  private readonly publicKey: string | string[] | undefined;
 
   constructor(opts: ClientOptions) {
     this.source = opts.source;

@@ -5,6 +5,10 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HttpStore } from "@saga-sync/core";
 import { DiskStore } from "@saga-sync/core/node";
+// Registers secp256k1 so `--public-key` accepts one without further ceremony.
+// The CLI is Node-only, so the extra curve costs nothing here; the browser
+// library entry (index.ts) deliberately does NOT import this.
+import "@saga-sync/core/secp256k1";
 import type { ChunkMeta, Hex } from "@saga-sync/core";
 import { Client } from "./client.js";
 import type { StreamTarget } from "./client.js";
@@ -50,7 +54,9 @@ Options:
   --hot                  chunks: include the mutable hot head
   --cache-dir <path>     stream: local cache of verified sealed chunks
   --concurrency <n>      stream: parallel chunk fetches, default ${DEFAULT_CONCURRENCY}
-  --public-key <hex>     require + verify the manifest's Ed25519 signature
+  --public-key <hex>     require + verify the manifest's signature (repeatable;
+                         Ed25519 or secp256k1, inferred from the key length —
+                         any one matching key accepts the manifest)
   --help                 show this message
 
 Exit codes: 0 ok · 1 usage/fetch/not-found · 3 head --since-block found nothing newer
@@ -233,7 +239,7 @@ async function runStream(
   opts: {
     cacheDir?: string;
     concurrency: number;
-    publicKey?: string;
+    publicKey?: string[];
     addresses?: Hex[];
     eventTopics?: Hex[];
   } & Range,
@@ -283,7 +289,7 @@ async function main(): Promise<void> {
       "since-block": { type: "string" },
       hot: { type: "boolean", default: false },
       concurrency: { type: "string" },
-      "public-key": { type: "string" },
+      "public-key": { type: "string", multiple: true },
       address: { type: "string", multiple: true },
       "event-topic": { type: "string", multiple: true },
       chain: { type: "string" },

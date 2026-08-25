@@ -293,10 +293,16 @@ gunzip -c './chunks/tornado-cash-1-eth-0.1-[0xc50101,0xc50201).jsonl.gz' | jq -c
   (`s3`/`ftp` throw until added); a `gs://bucket[/prefix]` `--output-dir` selects
   `GcsStore`, anything else is a local disk path.
 
-**`keygen.ts`** — CLI that mints an Ed25519 manifest-signing keypair (over core's
-`signing`). Set `MANIFEST_SIGNING_KEY` (a 32-byte hex seed) on the orchestrator /
-chunk-builder to publish a signed `index.json.sig`; consumers pin the matching
-public key via the client's `--public-key`.
+**`keygen.ts`** — CLI that mints a manifest-signing keypair (over core's
+`signing`). `keygen` alone gives Ed25519; `keygen --alg secp256k1` gives an
+Ethereum-shaped key. Set `MANIFEST_SIGNING_KEY` and/or
+`MANIFEST_SIGNING_KEY_SECP256K1` (32-byte hex seeds) on the orchestrator /
+chunk-builder and each configured key signs every manifest write; consumers pin
+any of the matching public keys via the client's `--public-key`.
+
+A consumer is accepted by **any** one signature, so every additional key is
+another way to forge a manifest. Add a second algorithm for reach (secp256k1
+works with Ethereum tooling and hardware wallets), not for strength — SPEC §9.1.
 
 ---
 
@@ -364,7 +370,9 @@ and the root [README.md](../../README.md) for the protocol-level walkthrough. Th
 `Manifest` class that reads/writes it lives in [`@saga-sync/core`](../core).
 `digest.data` is the sha256 of the **uncompressed** JSONL (`gunzip -c <file> |
 shasum -a 256`); `size` is the compressed byte length. With a signing key set, a
-sibling `index.json.sig` holds a detached Ed25519 signature over the exact bytes.
+sibling `index.json.sigs` holds the detached signature envelope over the exact
+bytes — one entry per configured algorithm — and `index.json.sig` still holds the
+bare Ed25519 signature for consumers pinned to the original file.
 
 ### State files
 

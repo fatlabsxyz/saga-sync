@@ -1,7 +1,11 @@
 import type { Store } from "@saga-sync/core";
 import { Manifest as PublisherManifest } from "@saga-sync/core";
 import type { ChunkMeta } from "@saga-sync/core";
-import { ManifestSignatureError, verifyManifestSignature } from "@saga-sync/core";
+import {
+  ManifestSignatureError,
+  parseSignatureEnvelope,
+  verifyManifestSignatures,
+} from "@saga-sync/core";
 
 // The client's view of a published manifest. Re-uses the publisher-side
 // `Manifest` class for parsing + validation so the shape is defined in exactly
@@ -9,10 +13,16 @@ import { ManifestSignatureError, verifyManifestSignature } from "@saga-sync/core
 export type { ChunkMeta, ManifestData } from "@saga-sync/core";
 
 export type LoadManifestOptions = {
-  // When set, the manifest's detached Ed25519 signature (`${key}.sig`) is
-  // verified against this 0x-hex public key before the manifest is parsed.
-  // Mandatory once enabled: a missing or mismatched signature throws.
-  publicKey?: string;
+  // When set, the manifest's detached signature is verified against this 0x-hex
+  // public key (or any of these keys) before the manifest is parsed. Mandatory
+  // once enabled: a missing or mismatched signature throws.
+  //
+  // Each key's algorithm is inferred from its length — 32 bytes is Ed25519, 33 or
+  // 65 is secp256k1 — so no companion algorithm flag is needed. Verification
+  // succeeds if ANY configured key verifies a signature of its own algorithm; a
+  // manifest is therefore only as trustworthy as the weakest key you pin here.
+  // secp256k1 keys additionally require `import "@saga-sync/core/secp256k1"`.
+  publicKey?: string | string[];
 };
 
 // Load and parse the manifest from a store. Throws if the manifest is absent
@@ -26,14 +36,24 @@ export async function loadManifest(
 ): Promise<PublisherManifest> {
   const raw = await store.get(key);
   if (!raw) throw new Error(`manifest not found at key "${key}"`);
-  if (opts.publicKey) {
-    const sig = await store.get(`${key}.sig`);
+  const publicKeys =
+    opts.publicKey === undefined
+      ? []
+      : Array.isArray(opts.publicKey)
+        ? opts.publicKey
+        : [opts.publicKey];
+  if (publicKeys.length > 0) {
+    // Prefer the multi-algorithm envelope; fall back to the legacy bare-hex file
+    // so a client stays compatible with a bucket published before envelopes.
+    // `parseSignatureEnvelope` accepts either form, so one code path covers both.
+    const sig = (await store.get(`${key}.sigs`)) ?? (await store.get(`${key}.sig`));
     if (!sig) {
       throw new ManifestSignatureError(
-        `manifest signature "${key}.sig" not found, but a public key was configured`,
+        `manifest signature ("${key}.sigs" or "${key}.sig") not found, ` +
+          `but a public key was configured`,
       );
     }
-    verifyManifestSignature(raw, new TextDecoder().decode(sig).trim(), opts.publicKey);
+    verifyManifestSignatures(raw, parseSignatureEnvelope(sig), publicKeys);
   }
   return PublisherManifest.fromRaw(store, key, raw);
 }

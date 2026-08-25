@@ -96,6 +96,18 @@ for S in "$RPC_SECRET" scraper-signing-key; do
 done
 [ "$MISSING" = 1 ] && exit 1
 
+# Optional: a secp256k1 signing key, so the manifest also carries an
+# Ethereum-shaped signature. Absent by default — bound only if the secret exists,
+# so this stays a no-op for deployments that don't want it.
+SECP_SECRET=scraper-signing-key-secp256k1
+SECP_BINDING=""
+if gcloud secrets describe "$SECP_SECRET" --project "$PROJECT" >/dev/null 2>&1; then
+  gcloud secrets add-iam-policy-binding "$SECP_SECRET" --project "$PROJECT" \
+    --member "serviceAccount:$SA" --role roles/secretmanager.secretAccessor >/dev/null
+  SECP_BINDING=",MANIFEST_SIGNING_KEY_SECP256K1=$SECP_SECRET:latest"
+  echo "  + $SECP_SECRET found — manifests will also carry a secp256k1 signature"
+fi
+
 echo "==> upload config to the bucket"
 gcloud storage cp "$CONFIG_FILE" "$CONFIG_URI"
 
@@ -105,7 +117,7 @@ JOB_FLAGS=(
   --image "$IMAGE:$TAG"
   --service-account "$SA"
   --set-env-vars "CONFIG_URI=$CONFIG_URI,OUTPUT_URI=$OUTPUT_URI"
-  --set-secrets "RPC=$RPC_SECRET:latest,MANIFEST_SIGNING_KEY=scraper-signing-key:latest"
+  --set-secrets "RPC=$RPC_SECRET:latest,MANIFEST_SIGNING_KEY=scraper-signing-key:latest$SECP_BINDING"
   # The orchestrator scrapes protocols in parallel (default --concurrency 4).
   # Each in-flight protocol buffers up to ~10 MiB, so give the job headroom;
   # raise memory and concurrency together (and mind the RPC rate limit) to go

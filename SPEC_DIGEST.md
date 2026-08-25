@@ -109,18 +109,30 @@ cheap rename in prior notes — still unresolved, still cheap.
   is essentially decorative today (only `maxSizeBytes` is enforced). Either wire
   up block-range sealing or drop the field from the spec.
 
-## 5. Manifest signing — implementation is AHEAD
+## 5. Manifest signing — RECONCILED 2026-08-24
 
-SPEC §9 is explicitly WIP. We've already shipped:
+Previously "implementation is AHEAD of SPEC §9". SPEC §9.1 has now been rewritten
+to describe what the code does, so spec and code agree:
 
-- **Ed25519 detached signature** → `index.json.sig` (resolves spec's "algorithm"
-  and "where the signature lives" open topics).
-- Producer signs from `MANIFEST_SIGNING_KEY`; consumer opt-in verifies via
-  `--public-key`.
+- **Ed25519 detached signature** → `index.json.sig` (resolves the spec's original
+  "algorithm" and "where the signature lives" open topics).
+- **Multi-algorithm envelope** → `index.json.sigs`, adding **secp256k1** (ECDSA
+  over `sha256(manifest bytes)`, 33-byte compressed keys, 64-byte compact
+  signatures). The bare `index.json.sig` is still written whenever an Ed25519 key
+  is configured, so consumers pinned to the original file keep verifying — that
+  back-compat is asserted in both directions in `client.test.ts`.
+- Producer signs from `MANIFEST_SIGNING_KEY` / `MANIFEST_SIGNING_KEY_SECP256K1`;
+  consumer opt-in verifies via a repeatable `--public-key`, algorithm inferred
+  from key length.
+- **Acceptance is ANY-signature**, and SPEC §9.1 now says plainly what that costs:
+  the trust root is only as strong as the weakest pinned key. Multiple algorithms
+  buy reach, not strength.
+- secp256k1 is an opt-in subpath (`@saga-sync/core/secp256k1`) so the browser
+  client does not carry it by default — measured 18.7 KB gz without, 25.3 KB with.
 
 Still open in **both**: key distribution (on-chain registry planned), key
-rotation, multi-signer co-signing. **Action: fold our design back into SPEC §9**
-and demote it from WIP to "implemented (v1), these sub-topics remain open."
+rotation (cross-signed `keys.json` sketched in SPEC §9.2), and true multi-signer
+co-signing by *independent* scrapers, which would need k-of-n acceptance.
 
 ## 6. Client sync (SPEC §5)
 
