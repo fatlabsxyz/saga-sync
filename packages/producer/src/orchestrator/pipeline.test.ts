@@ -2,31 +2,34 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CanonicalEvent } from "../scraper/normalize.js";
-import type { EventFilter } from "../scraper/config.js";
+import type { CanonicalRecord } from "@saga-sync/core";
+import type { ScraperSource } from "../sources/index.js";
 import { DiskStore } from "@saga-sync/core/node";
 import { ChunkArchive } from "../chunk-builder/archive.js";
 import { Manifest } from "@saga-sync/core";
 import { runProtocolOnce } from "./pipeline.js";
 
-const filter: EventFilter = {
-  contractAddress: `0x${"a".repeat(40)}` as `0x${string}`,
-  eventTopic: `0x${"b".repeat(64)}` as `0x${string}`,
-};
+const ADDRESS = `0x${"a".repeat(40)}` as `0x${string}`;
+const TOPIC = `0x${"b".repeat(64)}` as `0x${string}`;
 
-const log = (block: string, logIndex: string, data = "0x") => ({
-  address: filter.contractAddress,
-  topics: [filter.eventTopic],
+const event = (block: string, logIndex: string, data = "0x"): CanonicalRecord => ({
+  contractAddress: ADDRESS,
+  eventTopic: TOPIC,
+  topics: [TOPIC],
   data,
   blockNumber: block,
-  blockHash: `0x${"c".repeat(64)}`,
-  transactionHash: `0x${"d".repeat(64)}`,
-  transactionIndex: "0x0",
   logIndex,
-  removed: false,
 });
 
-const fakeClient = (request: (args: any) => Promise<any>) => ({ request }) as any;
+// runProtocolOnce drives ranges and chunking; where records come from is the
+// source's business. A stub source keeps these tests about the composition.
+const fakeSource = (...records: CanonicalRecord[]): ScraperSource => ({
+  kind: "fake",
+  async *fetch() {
+    for (const r of records) yield r;
+  },
+  latestCoveredBlock: async () => 0n,
+});
 
 describe("runProtocolOnce", () => {
   let dir: string;
@@ -41,15 +44,13 @@ describe("runProtocolOnce", () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   it("composes scrape → chunk and seals one chunk for events under the size limit", async () => {
-    const client = fakeClient(async () => [log("0x10", "0x0"), log("0x11", "0x0")]);
+    const source = fakeSource(event("0x10", "0x0"), event("0x11", "0x0"));
     const { sealed } = await runProtocolOnce({
-      client,
+      source,
       protocolId: "proto",
       fromBlock: 0x10n,
       toBlock: 0x20n,
-      events: [filter],
       sizeLimit: 100_000,
-      window: 100,
       archive,
       manifest,
     });
@@ -60,15 +61,13 @@ describe("runProtocolOnce", () => {
   });
 
   it("seals an empty chunk when the scrape returns no events", async () => {
-    const client = fakeClient(async () => []);
+    const source = fakeSource();
     const { sealed } = await runProtocolOnce({
-      client,
+      source,
       protocolId: "proto",
       fromBlock: 0x10n,
       toBlock: 0x20n,
-      events: [filter],
       sizeLimit: 100_000,
-      window: 100,
       archive,
       manifest,
     });
@@ -81,21 +80,15 @@ describe("runProtocolOnce", () => {
 
   it("splits at block boundaries when the size limit is exceeded", async () => {
     const big = `0x${"f".repeat(800)}`;
-    const client = fakeClient(async ({ params }: any) => {
-      const from = BigInt(params[0].fromBlock);
-      const to = BigInt(params[0].toBlock);
-      const out: any[] = [];
-      for (let b = from; b <= to; b += 1n) out.push(log(`0x${b.toString(16)}`, "0x0", big));
-      return out;
-    });
+    const source = fakeSource(
+      ...[0x10n, 0x11n, 0x12n, 0x13n].map((b) => event(`0x${b.toString(16)}`, "0x0", big)),
+    );
     const { sealed } = await runProtocolOnce({
-      client,
+      source,
       protocolId: "proto",
       fromBlock: 0x10n,
       toBlock: 0x13n,
-      events: [filter],
       sizeLimit: 1000,
-      window: 100,
       archive,
       manifest,
     });
@@ -108,15 +101,13 @@ describe("runProtocolOnce", () => {
   });
 
   it("suspend mode returns the trailing accumulator instead of sealing it", async () => {
-    const client = fakeClient(async () => [log("0x10", "0x0"), log("0x11", "0x0")]);
+    const source = fakeSource(event("0x10", "0x0"), event("0x11", "0x0"));
     const result = await runProtocolOnce({
-      client,
+      source,
       protocolId: "proto",
       fromBlock: 0x10n,
       toBlock: 0x20n,
-      events: [filter],
       sizeLimit: 100_000,
-      window: 100,
       archive,
       manifest,
       trailingMode: "suspend",
@@ -128,32 +119,18 @@ describe("runProtocolOnce", () => {
 
   it("hot-head seed pre-loads the accumulator; sealed range starts at hot-head from", async () => {
     const big = `0x${"f".repeat(800)}`;
-    const client = fakeClient(async ({ params }: any) => {
-      const from = BigInt(params[0].fromBlock);
-      const to = BigInt(params[0].toBlock);
-      const out: any[] = [];
-      for (let b = from; b <= to; b += 1n) out.push(log(`0x${b.toString(16)}`, "0x0", big));
-      return out;
-    });
-    const ev = (block: string): CanonicalEvent => ({
-      contractAddress: filter.contractAddress,
-      eventTopic: filter.eventTopic,
-      topics: [filter.eventTopic],
-      data: big as `0x${string}`,
-      blockNumber: block as `0x${string}`,
-      logIndex: "0x0",
-    });
+    const source = fakeSource(
+      ...[0x10n, 0x11n, 0x12n, 0x13n].map((b) => event(`0x${b.toString(16)}`, "0x0", big)),
+    );
     const result = await runProtocolOnce({
-      client,
+      source,
       protocolId: "proto",
       fromBlock: 0x10n,
       toBlock: 0x13n,
-      events: [filter],
       sizeLimit: 1000,
-      window: 100,
       archive,
       manifest,
-      hotHead: { events: [ev("0x5"), ev("0x6")], fromBlock: 0x0n },
+      hotHead: { events: [event("0x5", "0x0", big), event("0x6", "0x0", big)], fromBlock: 0x0n },
       trailingMode: "suspend",
     });
     expect(result.sealed.length).toBeGreaterThanOrEqual(1);

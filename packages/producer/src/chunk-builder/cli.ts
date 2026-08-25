@@ -4,7 +4,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { numberToHex } from "viem";
-import type { CanonicalEvent } from "../scraper/normalize.js";
+import type { CanonicalRecord } from "@saga-sync/core";
 import { createStore, parseStoreTarget } from "../storage/index.js";
 import { ChunkArchive } from "./archive.js";
 import { ChunkAccumulator } from "./accumulator.js";
@@ -95,7 +95,7 @@ export type ProcessArgs = {
   // before the new stream begins. `chunkFrom` is the start of the resulting
   // chunk's range. Seeded events bypass the range check (they were validated
   // by the previous batch).
-  seed?: { events: CanonicalEvent[]; chunkFrom: bigint };
+  seed?: { events: CanonicalRecord[]; chunkFrom: bigint };
   // "seal" (default): trailing accumulator is sealed at EOF. "suspend": it is
   // returned in `trailing` for the caller to persist as a hot head.
   trailingMode?: "seal" | "suspend";
@@ -104,10 +104,10 @@ export type ProcessArgs = {
 export type ProcessResult = {
   sealed: ChunkMeta[];
   // Present only when trailingMode === "suspend". `events` may be empty.
-  trailing?: { events: CanonicalEvent[]; fromBlock: bigint; toBlock: bigint };
+  trailing?: { events: CanonicalRecord[]; fromBlock: bigint; toBlock: bigint };
 };
 
-// Reads CanonicalEvent NDJSON, partitions it into chunks via ChunkAccumulator,
+// Reads CanonicalRecord NDJSON, partitions it into chunks via ChunkAccumulator,
 // and seals each completed chunk through ChunkArchive + Manifest. The trailing
 // accumulator is either sealed (seal mode) or returned (suspend mode — the
 // hot-head carry-over path).
@@ -137,9 +137,9 @@ export async function processStream(
     const line = rawLine.trim();
     if (line === "") continue;
 
-    let event: CanonicalEvent;
+    let event: CanonicalRecord;
     try {
-      event = JSON.parse(line) as CanonicalEvent;
+      event = JSON.parse(line) as CanonicalRecord;
     } catch (err) {
       throw new Error(`malformed NDJSON line: ${(err as Error).message}`);
     }

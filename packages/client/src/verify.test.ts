@@ -91,6 +91,51 @@ describe("verifyChunkEvents", () => {
     expect(() => verifyChunkEvents(rangeMeta(0x10, 0x20), [ev(0xf)])).toThrow(CanonicalFormError);
   });
 
+  describe("entity records", () => {
+    const op = (block: number, tx: number, opIndex: number) =>
+      ({
+        entity: "railgun-operation",
+        blockNumber: `0x${block.toString(16)}`,
+        transactionIndex: `0x${tx.toString(16)}`,
+        opIndex: `0x${opIndex.toString(16)}`,
+      }) as never;
+
+    it("passes for entities ascending by (block, transactionIndex, opIndex)", () => {
+      expect(() =>
+        verifyChunkEvents(rangeMeta(0x10, 0x20), [
+          op(0x10, 0, 0),
+          op(0x10, 0, 1),
+          op(0x10, 5, 0),
+          op(0x11, 0, 0),
+        ]),
+      ).not.toThrow();
+    });
+
+    it("throws when two entities share the full sort key", () => {
+      expect(() =>
+        verifyChunkEvents(rangeMeta(0x10, 0x20), [op(0x10, 2, 0), op(0x10, 2, 0)]),
+      ).toThrow(CanonicalFormError);
+    });
+
+    it("throws on a descending opIndex within one transaction", () => {
+      expect(() =>
+        verifyChunkEvents(rangeMeta(0x10, 0x20), [op(0x10, 2, 1), op(0x10, 2, 0)]),
+      ).toThrow(/not strictly ascending/);
+    });
+
+    it("throws when an entity is outside the chunk range", () => {
+      expect(() => verifyChunkEvents(rangeMeta(0x10, 0x20), [op(0x30, 0, 0)])).toThrow(/outside/);
+    });
+
+    it("throws when a chunk MIXES logs and entities", () => {
+      // Provenance differs: a log is checkable against an archive node, an
+      // entity is someone's derivation. They must not share a stream.
+      expect(() => verifyChunkEvents(rangeMeta(0x10, 0x20), [ev(0x10), op(0x11, 0, 0)])).toThrow(
+        /mixes log and entity records/,
+      );
+    });
+  });
+
   it("throws when an event is at/above toBlock (exclusive end)", () => {
     expect(() => verifyChunkEvents(rangeMeta(0x10, 0x20), [ev(0x20)])).toThrow(/outside/);
   });

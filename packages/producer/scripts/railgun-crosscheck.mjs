@@ -21,7 +21,8 @@
 
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
-import { HttpStore, Manifest, sha256Hex } from "@saga-sync/core";
+import { HttpStore, Manifest, sha256Hex, isEntityRecord } from "@saga-sync/core";
+import { DiskStore } from "@saga-sync/core/node";
 import { decodeEventLog, parseAbiItem, toEventSelector, toEventSignature } from "viem";
 
 const DEFAULT_MANIFEST = "https://storage.googleapis.com/pp-state/";
@@ -72,6 +73,7 @@ function parseArgs(argv) {
     protocol: DEFAULT_PROTOCOL,
     squid: DEFAULT_SQUID,
     config: "./publish-config.json",
+    skipConfigCheck: false,
     from: null,
     to: null,
   };
@@ -83,6 +85,7 @@ function parseArgs(argv) {
       case "--protocol": out.protocol = value(); break;
       case "--squid": out.squid = value(); break;
       case "--config": out.config = value(); break;
+      case "--ops": out.skipConfigCheck = true; break;
       case "--from": out.from = BigInt(value()); break;
       case "--to": out.to = BigInt(value()); break;
       case "--help": case "-h": usage(); process.exit(0);
@@ -97,7 +100,7 @@ function parseArgs(argv) {
 function usage() {
   console.log(
     "usage: railgun-crosscheck.mjs --from <block> --to <block> " +
-      "[--manifest <url>] [--protocol <id>] [--squid <url>] [--config <path>]\n" +
+      "[--manifest <url|dir>] [--protocol <id>] [--squid <url>] [--config <path>] [--ops]\n" +
       "\nRange is half-open [from, to), matching the manifest's chunk convention.",
   );
 }
@@ -151,7 +154,8 @@ function checkConfig(configPath, protocolId) {
 // --- 2. our side: read + verify chunks, decode into entity sets ---------------
 
 async function readOurEvents({ manifest, protocol, from, to }) {
-  const store = new HttpStore(manifest);
+  // A local directory works too, so a stream can be verified before it is published.
+  const store = /^https?:\/\//.test(manifest) ? new HttpStore(manifest) : new DiskStore(manifest);
   const index = await Manifest.load(store);
   if (!index.protocolIds().includes(protocol)) {
     fail(`manifest at ${manifest} has no stream "${protocol}" (has: ${index.protocolIds().join(", ")})`);
@@ -272,6 +276,69 @@ function decodeOurs(events) {
     );
   }
   return { commitments, nullifiers, unshields };
+}
+
+// --- 2b. operations (entity records) ---
+
+// An operation's identity: its chain coordinate plus every field kohaku feeds
+// into the TXID tree. Comparing the whole payload — not just the coordinate —
+// is what makes this a real check rather than a row count.
+const operationKey = (o) =>
+  [
+    dec(o.blockNumber),
+    dec(o.transactionIndex),
+    dec(o.opIndex),
+    (o.nullifiers ?? []).map(lower).join(","),
+    (o.commitments ?? []).map(lower).join(","),
+    lower(o.boundParamsHash),
+    dec(o.utxoTreeIn),
+    dec(o.utxoTreeOut),
+    dec(o.utxoBatchStartPositionOut),
+  ].join("|");
+
+function decodeOurOperations(records) {
+  const ops = new Map();
+  for (const r of records) {
+    if (r.entity !== "railgun-operation") {
+      fail(`unexpected entity "${r.entity}" in an operations stream`);
+    }
+    ops.set(operationKey(r), `block ${BigInt(r.blockNumber)}`);
+  }
+  return ops;
+}
+
+async function readSquidOperations(endpoint, from, to) {
+  const rows = await squidPage(
+    endpoint,
+    "transactions",
+    `blockNumber nullifiers commitments boundParamsHash
+     utxoTreeIn utxoTreeOut utxoBatchStartPositionOut`,
+    from,
+    to,
+  );
+  const ops = new Map();
+  for (const r of rows) {
+    // The squid id is blockNumber‖transactionIndex‖opIndex; our records carry
+    // those as fields, so recover them the same way the source does.
+    const hex = r.id.startsWith("0x") ? r.id.slice(2) : r.id;
+    const word = (i) => BigInt(`0x${hex.slice(i * 64, (i + 1) * 64)}`);
+    ops.set(
+      operationKey({
+        blockNumber: r.blockNumber,
+        transactionIndex: word(1),
+        opIndex: word(2),
+        nullifiers: r.nullifiers,
+        commitments: r.commitments,
+        boundParamsHash: r.boundParamsHash,
+        utxoTreeIn: r.utxoTreeIn,
+        utxoTreeOut: r.utxoTreeOut,
+        utxoBatchStartPositionOut: r.utxoBatchStartPositionOut,
+      }),
+      `block ${r.blockNumber}`,
+    );
+  }
+  console.log(`squid:   ${rows.length} operation(s)`);
+  return ops;
 }
 
 // --- 3. squid side -----------------------------------------------------------
@@ -417,9 +484,28 @@ function byKind(map) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   console.log(`range:   [${opts.from}, ${opts.to})`);
-  checkConfig(opts.config, opts.protocol);
+  // The ABI table only describes log streams; an operations stream has no topics.
+  if (!opts.skipConfigCheck) checkConfig(opts.config, opts.protocol);
 
-  const ours = decodeOurs(await readOurEvents(opts));
+  const records = await readOurEvents(opts);
+
+  // An operations stream carries entity records, a log stream carries logs. They
+  // never mix (the client enforces that), so the first record decides.
+  if (records.length > 0 && isEntityRecord(records[0])) {
+    const ours = decodeOurOperations(records);
+    const theirs = await readSquidOperations(opts.squid, opts.from, opts.to);
+    console.log("\ncomparison:");
+    const ok = diff("operations", ours, theirs);
+    console.log(ok ? "\nPASS — operations match the squid" : "\nFAIL — see differences above");
+    console.log(
+      "\nNote: this stream MIRRORS the squid, so a match proves our normalization and\n" +
+        "chunking are lossless — not that the underlying data is right. Only a second,\n" +
+        "independent derivation (Phase 3, from transact() calldata) can prove that.",
+    );
+    process.exit(ok ? 0 : 1);
+  }
+
+  const ours = decodeOurs(records);
   const theirs = await readSquid(opts.squid, opts.from, opts.to);
 
   console.log("\ncomparison:");

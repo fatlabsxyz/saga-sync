@@ -149,11 +149,22 @@ async function main(): Promise<void> {
   }
 
   // 3. Fetch logs (windowed, streaming)  +  4. Normalize  +  5. Emit
+  //
+  // This CLI is the raw eth_getLogs path and nothing else. A stream configured
+  // with another source has no logs to emit, so say so rather than producing an
+  // empty NDJSON stream that looks like "no activity in this range".
+  if (config.source.kind !== "rpc" || !config.events) {
+    fail(
+      `protocol "${args.protocolId}" uses the "${config.source.kind}" source; ` +
+        `the standalone scraper only reads logs. Run it through the orchestrator.`,
+    );
+  }
+  const eventFilters = config.events;
   let count = 0;
   for await (const log of scrape(client, {
     fromBlock,
     toBlock,
-    events: config.events,
+    events: eventFilters,
     window: args.window,
   })) {
     process.stdout.write(JSON.stringify(normalize(log)) + "\n");

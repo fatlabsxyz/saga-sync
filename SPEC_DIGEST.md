@@ -191,3 +191,35 @@ All items 1–6 are done.
 (SPEC §6/§8) vs. the implementation's chain `finalized` tag + `--confirmations`
 fallback — both reorg-safe; not reconciled because it wasn't part of the
 naming pass.
+
+## 8. Entity records — NEW 2026-08-25 (SPEC §3.4)
+
+Chunks may now carry **entity records** alongside the original log shape, for state
+that exists in no log. Driver: Railgun's per-transaction operations
+(`boundParamsHash`, `utxoTreeIn`, the per-transaction split of nullifiers and
+commitments) live only in `transact()` calldata, and kohaku needs them for
+TXID/POI.
+
+- **Type:** `CanonicalEvent` (log) is UNCHANGED on the wire and in TypeScript.
+  Added `CanonicalEntity` and `CanonicalRecord = CanonicalEvent | CanonicalEntity`,
+  plus `isEntityRecord()`. Discrimination is the presence of an `entity` field, so
+  every chunk published before this parses identically.
+- **Ordering key:** entities sort by `(blockNumber, transactionIndex, opIndex)` —
+  a **chain coordinate**, deliberately not an indexer's row id, so a future
+  calldata-derived source emits byte-identical bytes. Logs keep
+  `(blockNumber, logIndex)`. Both are now enforced as STRICTLY ascending.
+- **One kind per stream.** `verifyChunkEvents` rejects a chunk mixing logs and
+  entities: a log is checkable against an archive node, an entity is a derivation,
+  and interleaving would let the latter shelter among the former.
+- **Sources.** New `ScraperSource` seam (`packages/producer/src/sources/`) with
+  `RpcLogSource` (unchanged behaviour) and `SubsquidSource`. Config gained an
+  optional `source` block defaulting to `{kind:"rpc"}`; `events` is now required
+  for rpc and rejected for other kinds.
+- **Reorg safety.** The Subsquid index runs ~75 blocks behind chain head — i.e.
+  AHEAD of finality — so its tip is clamped to the chain's finalized block. Sealed
+  chunks stay immutable. The orchestrator's tip is now per-source rather than one
+  global value.
+- **Provenance.** `protocolMetadata.source` records that a stream mirrors a
+  third-party index, since §10's reproducibility argument does not hold for it.
+
+The chunk builder needed no changes — it only ever reads `blockNumber`.

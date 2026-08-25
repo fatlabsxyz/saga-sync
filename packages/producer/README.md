@@ -293,6 +293,23 @@ gunzip -c './chunks/tornado-cash-1-eth-0.1-[0xc50101,0xc50201).jsonl.gz' | jq -c
   (`s3`/`ftp` throw until added); a `gs://bucket[/prefix]` `--output-dir` selects
   `GcsStore`, anything else is a local disk path.
 
+**`sources/`** — where a stream's records come from. The orchestrator drives block
+ranges and chunking; a `ScraperSource` decides what to yield.
+
+- **`RpcLogSource`** — windowed `eth_getLogs`, the original path (adaptive window
+  halving, rate-limit backoff, `normalize()` to canonical form). Its
+  `latestCoveredBlock()` is the chain's finalized block.
+- **`SubsquidSource`** — mirrors a Squid GraphQL index, for state no log carries
+  (Railgun's per-transaction operations live only in `transact()` calldata).
+  Pagination, retries and termination match kohaku's own client so both fail the
+  same way. **Its tip is clamped to the chain's finalized block**: the index runs
+  ~75 blocks behind head, i.e. ahead of finality, and sealed chunks are immutable.
+
+Selected per stream by the config's `source` block, which defaults to
+`{"kind":"rpc"}` so configs written before sources existed are unchanged. `events`
+is required for an rpc source and rejected for any other. Adding a source kind is
+one `case` in `createSource()` plus one class — the same shape as `createStore()`.
+
 **`keygen.ts`** — CLI that mints a manifest-signing keypair (over core's
 `signing`). `keygen` alone gives Ed25519; `keygen --alg secp256k1` gives an
 Ethereum-shaped key. Set `MANIFEST_SIGNING_KEY` and/or

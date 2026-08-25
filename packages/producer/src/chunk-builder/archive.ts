@@ -1,16 +1,16 @@
 import { gzipSync, gunzipSync } from "node:zlib";
 import { numberToHex } from "viem";
 import { sha256Hex } from "@saga-sync/core";
-import type { CanonicalEvent } from "../scraper/normalize.js";
+import type { CanonicalRecord } from "@saga-sync/core";
 import type { Store } from "@saga-sync/core";
 import type { ChunkMeta } from "@saga-sync/core";
 
 export type Range = { from: bigint; to: bigint };
 
-// Build the JSONL bytes for a chunk: one CanonicalEvent per line, trailing
+// Build the JSONL bytes for a chunk: one CanonicalRecord per line, trailing
 // newline. Empty events list produces zero bytes so an empty chunk file is
 // genuinely empty rather than a single blank line.
-export function buildJsonl(events: CanonicalEvent[]): Buffer {
+export function buildJsonl(events: CanonicalRecord[]): Buffer {
   if (events.length === 0) return Buffer.alloc(0);
   return Buffer.from(events.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
 }
@@ -27,18 +27,18 @@ export class ChunkArchive {
   constructor(private readonly store: Store) {}
 
   // Seal an immutable chunk.
-  seal(protocolId: string, events: CanonicalEvent[], range: Range): Promise<ChunkMeta> {
+  seal(protocolId: string, events: CanonicalRecord[], range: Range): Promise<ChunkMeta> {
     return this.write(protocolId, events, range, false);
   }
 
   // Write the protocol's mutable hot head.
-  writeHotHead(protocolId: string, events: CanonicalEvent[], range: Range): Promise<ChunkMeta> {
+  writeHotHead(protocolId: string, events: CanonicalRecord[], range: Range): Promise<ChunkMeta> {
     return this.write(protocolId, events, range, true);
   }
 
   private async write(
     protocolId: string,
-    events: CanonicalEvent[],
+    events: CanonicalRecord[],
     range: Range,
     hot: boolean,
   ): Promise<ChunkMeta> {
@@ -64,7 +64,7 @@ export class ChunkArchive {
   // Inverse of write(): fetch a chunk file and parse its JSONL back into events.
   // Used to load a previous hot head into the accumulator (and by the future
   // client library to materialize chunk contents).
-  async readEvents(meta: ChunkMeta): Promise<CanonicalEvent[]> {
+  async readEvents(meta: ChunkMeta): Promise<CanonicalRecord[]> {
     const compressed = await this.store.get(meta.file);
     if (!compressed || compressed.length === 0) return [];
     const uncompressed = gunzipSync(compressed).toString("utf8");
@@ -72,7 +72,7 @@ export class ChunkArchive {
     return uncompressed
       .split("\n")
       .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line) as CanonicalEvent);
+      .map((line) => JSON.parse(line) as CanonicalRecord);
   }
 
   async delete(meta: ChunkMeta): Promise<void> {

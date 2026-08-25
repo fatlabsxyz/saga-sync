@@ -14,6 +14,8 @@ import { fileURLToPath } from "node:url";
 import { numberToHex } from "viem";
 import type { PublicClient } from "viem";
 import { finalizedBlock, assertChainId, createRpcClient } from "../scraper/cli.js";
+import { createSource } from "../sources/index.js";
+import type { ScraperSource } from "../sources/index.js";
 import { loadAllProtocols } from "../scraper/config.js";
 import type { ScraperTarget } from "../scraper/config.js";
 import { createStore, parseStoreTarget } from "../storage/index.js";
@@ -182,14 +184,13 @@ export function acquireLock(path: string): boolean {
 // Process one protocol: clean any stale hot head, loop in batches, persist the
 // final trailing accumulator as the new hot head.
 async function processProtocol(args: {
-  client: PublicClient;
+  source: ScraperSource;
   protocolId: string;
   protocol: ScraperTarget;
   archive: ChunkArchive;
   manifest: Manifest;
   tip: bigint;
   batchSize: bigint;
-  window: number;
   sizeLimit: number;
 }): Promise<{ ranBatches: number; sealedChunks: number; finalHotHead: ChunkMeta | null }> {
   const { manifest, archive, protocolId, protocol, tip, batchSize } = args;
@@ -245,13 +246,11 @@ async function processProtocol(args: {
     const batchEnd = candidate > tip ? tip : candidate;
 
     const result = await runProtocolOnce({
-      client: args.client,
+      source: args.source,
       protocolId,
       fromBlock: batchStart,
       toBlock: batchEnd,
-      events: protocol.events,
       sizeLimit,
-      window: args.window,
       archive,
       manifest,
       ...(trailing && {
@@ -331,7 +330,10 @@ async function main(): Promise<void> {
   const manifest = await Manifest.load(store, undefined, { signers: signersFromEnv() });
 
   const client: PublicClient = createRpcClient(args.rpc);
-  const tip =
+  // The chain's finalized tip, resolved once for the run. Every source is bounded
+  // by it — an rpc source because that IS its tip, a subsquid source because its
+  // index runs ahead of finality and our sealed chunks are immutable.
+  const finalizedTip =
     (await finalizedBlock(client)) ?? (await client.getBlockNumber()) - args.confirmations;
 
   const ids = args.protocolId
@@ -348,10 +350,28 @@ async function main(): Promise<void> {
     const protocol = protocols[protocolId];
     if (!protocol) return "skipped";
 
+    // The chain-id guard only means something for a source that talks to this
+    // RPC. A mirrored index is pinned to its own chain by its endpoint.
+    if (protocol.source.kind === "rpc") {
+      try {
+        await assertChainId(client, protocol.chainId);
+      } catch (err) {
+        process.stderr.write(`orchestrator: skipping ${protocolId} — ${(err as Error).message}\n`);
+        return "skipped";
+      }
+    }
+
+    let source: ScraperSource;
+    let tip: bigint;
     try {
-      await assertChainId(client, protocol.chainId);
+      source = createSource(protocol, { client, window: args.window, finalizedTip });
+      // Per-source, not global: an index that lags the chain must not be asked
+      // for blocks it has not reached, or it reports an empty range as truth.
+      tip = await source.latestCoveredBlock();
     } catch (err) {
-      process.stderr.write(`orchestrator: skipping ${protocolId} — ${(err as Error).message}\n`);
+      process.stderr.write(
+        `orchestrator: skipping ${protocolId} — source unavailable: ${(err as Error).message}\n`,
+      );
       return "skipped";
     }
 
@@ -362,7 +382,8 @@ async function main(): Promise<void> {
       const batches = Math.ceil(Number((tip - startFrom + 1n) / args.batchSize)) || 1;
       process.stderr.write(
         `orchestrator: [dry-run] ${protocolId} would scan ` +
-          `[${numberToHex(startFrom)}, ${numberToHex(tip)}] in ${batches} batch(es)\n`,
+          `[${numberToHex(startFrom)}, ${numberToHex(tip)}] in ${batches} batch(es) ` +
+          `via the ${source.kind} source\n`,
       );
       return "ran";
     }
@@ -376,14 +397,13 @@ async function main(): Promise<void> {
         trackedEventTopics: protocol.trackedEventTopics,
       });
       const result = await processProtocol({
-        client,
+        source,
         protocolId,
         protocol,
         archive,
         manifest,
         tip,
         batchSize: args.batchSize,
-        window: args.window,
         sizeLimit: args.sizeLimit,
       });
       const hot = result.finalHotHead
@@ -417,7 +437,8 @@ async function main(): Promise<void> {
   await manifest.flush();
 
   process.stderr.write(
-    `orchestrator: ${ran} ran, ${skipped} skipped, ${failed} failed [tip ${numberToHex(tip)}]` +
+    `orchestrator: ${ran} ran, ${skipped} skipped, ${failed} failed ` +
+      `[finalized ${numberToHex(finalizedTip)}]` +
       (args.dryRun ? " (dry-run)\n" : "\n"),
   );
   if (failed > 0) process.exit(2);

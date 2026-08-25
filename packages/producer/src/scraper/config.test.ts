@@ -185,4 +185,62 @@ describe("loadAllProtocols", () => {
     });
     expect(() => loadAllProtocols(path)).toThrow(/p-broken/);
   });
+
+  describe("source", () => {
+    const write = (protocols: Record<string, unknown>): string => {
+      const file = join(dir, "src-config.json");
+      writeFileSync(file, JSON.stringify({ protocols }), "utf8");
+      return file;
+    };
+    const rpcTarget = {
+      chainId: "0x1",
+      fromBlock: "0x1",
+      events: [{ contractAddress: `0x${"a".repeat(40)}`, eventTopic: `0x${"b".repeat(64)}` }],
+    };
+    const squidTarget = {
+      chainId: "0x1",
+      fromBlock: "0x1",
+      source: { kind: "subsquid", endpoint: "https://squid.example/graphql", entity: "railgun-operation" },
+    };
+
+    it("defaults to rpc when absent, so pre-source configs are unchanged", () => {
+      const t = loadConfig(write({ p: rpcTarget }), "p");
+      expect(t.source).toEqual({ kind: "rpc" });
+      expect(t.events).toHaveLength(1);
+    });
+
+    it("parses a subsquid source and derives no tracked addresses/topics", () => {
+      const t = loadConfig(write({ p: squidTarget }), "p");
+      expect(t.source).toEqual({
+        kind: "subsquid",
+        endpoint: "https://squid.example/graphql",
+        entity: "railgun-operation",
+      });
+      expect(t.events).toBeUndefined();
+      expect(t.trackedAddresses).toBeUndefined();
+      expect(t.trackedEventTopics).toBeUndefined();
+    });
+
+    it("requires events for an rpc source", () => {
+      const { events, ...noEvents } = rpcTarget;
+      expect(() => loadConfig(write({ p: noEvents }), "p")).toThrow(
+        /at least one event filter is required for an rpc source/,
+      );
+    });
+
+    it("rejects events on a non-rpc source rather than silently ignoring them", () => {
+      const mixed = { ...squidTarget, events: rpcTarget.events };
+      expect(() => loadConfig(write({ p: mixed }), "p")).toThrow(/only meaningful for an rpc source/);
+    });
+
+    it("rejects an unknown source kind", () => {
+      const bad = { ...squidTarget, source: { kind: "carrier-pigeon" } };
+      expect(() => loadConfig(write({ p: bad }), "p")).toThrow(/is invalid/);
+    });
+
+    it("rejects a subsquid source without a usable endpoint", () => {
+      const bad = { ...squidTarget, source: { ...squidTarget.source, endpoint: "not-a-url" } };
+      expect(() => loadConfig(write({ p: bad }), "p")).toThrow(/absolute http\(s\) URL/);
+    });
+  });
 });
