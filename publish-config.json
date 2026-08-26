@@ -830,18 +830,49 @@
         }
       ]
     },
-    "railgun-1-main": {
+    "railgun-1-smartwallet": {
       "chainId": "0x1",
       "fromBlock": "0xe03295",
       "chunkSettings": {
         "maxSizeBytes": "0xa00000"
       },
       "protocol": "railgun",
-      "protocolMetadata": {},
+      "protocolMetadata": {
+        "contract": "RailgunSmartWallet",
+        "source": "rpc",
+        "treeDepth": 16,
+        "leavesPerTree": 65536,
+        "events": {
+          "0xf75eaa09da191ca634619d229eaa2a62f3f30b79ef6e9a0a2cb33ae1dc07d71c": "GeneratedCommitmentBatch(uint256,uint256,(uint256,(uint8,address,uint256),uint120)[],uint256[2][])",
+          "0xc82d23263b236b692a8094d858e0831328f26cd9bcd5127d91c9299036cb9de9": "CommitmentBatch(uint256,uint256,uint256[],(uint256[4],uint256[2],uint256[])[])",
+          "0x78b6af109cf8ed292e957cdc2975e50bfd37995f5c38d35dc10e2ed0007cbd09": "Nullifiers(uint256,uint256[])",
+          "0xc3821e11e71307afd1d94a490660178ff37aefdd3c0514e5dd08937bd7024f34": "Shield(uint256,uint256,(bytes32,(uint8,address,uint256),uint120)[],(bytes32[3],bytes32)[])",
+          "0x3a5b9dc26075a3801a6ddccf95fec485bb7500a91b44cec1add984c21ee6db3b": "Shield(uint256,uint256,(bytes32,(uint8,address,uint256),uint120)[],(bytes32[3],bytes32)[],uint256[])",
+          "0x56a618cda1e34057b7f849a5792f6c8587a2dbe11c83d0254e72cb3daffda7d1": "Transact(uint256,uint256,bytes32[],(bytes32[4],bytes32,bytes32,bytes,bytes)[])",
+          "0xd93cf895c7d5b2cd7dc7a098b678b3089f37d91f48d9b83a0800a91cbdf05284": "Unshield(address,(uint8,address,uint256),uint256,uint256)",
+          "0x781745c57906dc2f175fec80a9c691744c91c48a34a83672c41c2604774eb11f": "Nullified(uint16,bytes32[])"
+        }
+      },
       "events": [
         {
           "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
+          "eventTopic": "0xf75eaa09da191ca634619d229eaa2a62f3f30b79ef6e9a0a2cb33ae1dc07d71c"
+        },
+        {
+          "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
+          "eventTopic": "0xc82d23263b236b692a8094d858e0831328f26cd9bcd5127d91c9299036cb9de9"
+        },
+        {
+          "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
+          "eventTopic": "0x78b6af109cf8ed292e957cdc2975e50bfd37995f5c38d35dc10e2ed0007cbd09"
+        },
+        {
+          "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
           "eventTopic": "0xc3821e11e71307afd1d94a490660178ff37aefdd3c0514e5dd08937bd7024f34"
+        },
+        {
+          "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",
+          "eventTopic": "0x3a5b9dc26075a3801a6ddccf95fec485bb7500a91b44cec1add984c21ee6db3b"
         },
         {
           "contractAddress": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9",

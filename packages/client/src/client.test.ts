@@ -6,7 +6,15 @@ import { ChunkArchive } from "@saga-sync/producer";
 import { Manifest } from "@saga-sync/core";
 import { Client } from "./client.js";
 import { DigestMismatchError } from "./verify.js";
-import { generateKeyPair, signManifest, ManifestSignatureError } from "@saga-sync/core";
+import {
+  generateKeyPair,
+  signManifest,
+  createSigner,
+  verifyManifestSignature,
+  ManifestSignatureError,
+} from "@saga-sync/core";
+import type { ManifestKeySigner } from "@saga-sync/core";
+import "@saga-sync/core/secp256k1";
 
 // Instrumented in-memory store: records gets/puts and tracks peak concurrent
 // in-flight gets. `getDelayMs` holds gets open so overlap is observable.
@@ -58,9 +66,13 @@ async function publish(
   sealedRanges: { from: bigint; to: bigint; events: CanonicalEvent[] }[],
   hot?: { from: bigint; to: bigint; events: CanonicalEvent[] },
   signer?: (bytes: Uint8Array) => `0x${string}`,
+  signers?: ManifestKeySigner[],
 ): Promise<CanonicalEvent[]> {
   const archive = new ChunkArchive(store);
-  const manifest = await Manifest.load(store, undefined, { signer });
+  const manifest = await Manifest.load(store, undefined, {
+    ...(signer ? { signer } : {}),
+    ...(signers ? { signers } : {}),
+  });
   const all: CanonicalEvent[] = [];
   for (const r of sealedRanges) {
     const meta = await archive.seal(PID, r.events, { from: r.from, to: r.to });
@@ -387,6 +399,79 @@ describe("Client", () => {
       await publish(source, [{ from: 1n, to: 2n, events: [event(1n)] }], undefined, sign(signer.secretKey));
       const client = new Client({ source, publicKey: attackerSees.publicKey });
       await expect(collect(client.streamEvents(PID))).rejects.toThrow(ManifestSignatureError);
+    });
+
+    it("verifies a multi-algorithm manifest with EITHER key alone", async () => {
+      const ed = generateKeyPair("ed25519");
+      const k1 = generateKeyPair("secp256k1");
+      const signers = [createSigner(ed.secretKey, "ed25519"), createSigner(k1.secretKey, "secp256k1")];
+      const all = await publish(
+        source,
+        [{ from: 1n, to: 2n, events: [event(1n)] }],
+        undefined,
+        undefined,
+        signers,
+      );
+      for (const publicKey of [ed.publicKey, k1.publicKey]) {
+        const client = new Client({ source, publicKey });
+        expect(await collect(client.streamEvents(PID))).toEqual(all);
+      }
+      // And with both pinned at once.
+      const both = new Client({ source, publicKey: [ed.publicKey, k1.publicKey] });
+      expect(await collect(both.streamEvents(PID))).toEqual(all);
+    });
+
+    it("rejects a tampered manifest even though two signatures are present", async () => {
+      const ed = generateKeyPair("ed25519");
+      const k1 = generateKeyPair("secp256k1");
+      await publish(source, [{ from: 1n, to: 2n, events: [event(1n)] }], undefined, undefined, [
+        createSigner(ed.secretKey, "ed25519"),
+        createSigner(k1.secretKey, "secp256k1"),
+      ]);
+      const tampered = Buffer.from(
+        (await source.get("index.json"))!.toString("utf8").replace("0x1", "0x9"),
+      );
+      await source.put("index.json", tampered);
+      const client = new Client({ source, publicKey: [ed.publicKey, k1.publicKey] });
+      await expect(client.fetchManifest()).rejects.toThrow(ManifestSignatureError);
+    });
+
+    it("rejects a secp256k1 key against a bucket that only published Ed25519", async () => {
+      const ed = generateKeyPair("ed25519");
+      const k1 = generateKeyPair("secp256k1");
+      await publish(source, [{ from: 1n, to: 2n, events: [event(1n)] }], undefined, undefined, [
+        createSigner(ed.secretKey, "ed25519"),
+      ]);
+      const client = new Client({ source, publicKey: k1.publicKey });
+      await expect(client.fetchManifest()).rejects.toThrow(/no secp256k1 signature is present/);
+    });
+
+    it("BACK-COMPAT: a new client verifies an old bucket that only has the bare .sig", async () => {
+      const ed = generateKeyPair("ed25519");
+      await publish(
+        source,
+        [{ from: 1n, to: 2n, events: [event(1n)] }],
+        undefined,
+        sign(ed.secretKey), // legacy signer -> writes index.json.sig only
+      );
+      expect(await source.get("index.json.sigs")).toBeNull();
+      const client = new Client({ source, publicKey: ed.publicKey });
+      await expect(collect(client.streamEvents(PID))).resolves.toHaveLength(1);
+    });
+
+    it("BACK-COMPAT: an envelope bucket still serves a readable bare .sig", async () => {
+      // What an already-pinned consumer on the old client does: read
+      // `index.json.sig` and verify it as a raw Ed25519 signature.
+      const ed = generateKeyPair("ed25519");
+      const k1 = generateKeyPair("secp256k1");
+      await publish(source, [{ from: 1n, to: 2n, events: [event(1n)] }], undefined, undefined, [
+        createSigner(ed.secretKey, "ed25519"),
+        createSigner(k1.secretKey, "secp256k1"),
+      ]);
+      const body = (await source.get("index.json"))!;
+      const legacy = new TextDecoder().decode((await source.get("index.json.sig"))!).trim();
+      expect(legacy).toMatch(/^0x[0-9a-f]{128}$/);
+      expect(() => verifyManifestSignature(body, legacy, ed.publicKey)).not.toThrow();
     });
 
     it("rejects when a publicKey is set but the manifest is unsigned", async () => {

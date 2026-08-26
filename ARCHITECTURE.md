@@ -54,7 +54,7 @@ A **producer** side (scrape → package → publish) and a **consumer** side
   **batches**. Owns the hot-head lifecycle.
 - **client** — the consumer. Reads the manifest, downloads a protocol's chunks +
   hot head, **verifies every chunk's sha256** against the manifest (and optionally
-  the manifest's **Ed25519 signature**), and yields the merged `CanonicalEvent`
+  the manifest's **signature**), and yields the merged `CanonicalEvent`
   stream to an application. A browser-safe library; verifies everything it serves.
 - **storage** — a `Store` interface abstracting all object persistence.
   `DiskStore` (producer writes, local read) and `HttpStore` (consumer read-side
@@ -75,7 +75,7 @@ libraries and compose with no subprocesses.
 
 - **Node ≥ 20**, **TypeScript** (strict, ESM, `module: Node16`).
 - **Runtime dependencies** (4): `viem` (Ethereum RPC client), `zod` (config
-  validation), `@noble/hashes` (sha256), `@noble/curves` (Ed25519 manifest
+  validation), `@noble/hashes` (sha256), `@noble/curves` (Ed25519 + secp256k1 manifest
   signing). The two `@noble` libs are pure-JS and isomorphic, so the consumer
   library is browser-safe (§6).
 - **Optional dependency**: `@google-cloud/storage`, used only by `GcsStore` and
@@ -108,7 +108,8 @@ packages/
     src/                     browser-safe "." entry; Node-only DiskStore at "./node"
       hex.ts            Hex — 0x-string type alias (replaces viem's Hex)
       hash.ts           sha256Hex() — the one place the digest algorithm is named
-      signing.ts        Ed25519 sign/verify of the manifest — the one place signing lives
+      signing.ts        sign/verify of the manifest — algorithm registry + envelope
+      secp256k1.ts      opt-in secp256k1, exported at "@saga-sync/core/secp256k1"
       manifest.ts       Manifest class + ChunkMeta/ManifestData — the index.json schema
       events.ts         CanonicalEvent type — the persisted log shape (shared)
       store.ts          Store interface — put / get / delete / list (all async)
@@ -143,7 +144,7 @@ packages/
         gcs-store.ts    GcsStore: write to a GCS bucket (producer publish side)
         dry-run-store.ts DryRunStore: decorator that no-ops writes, delegates reads
         index.ts        createStore() factory + parseStoreTarget()
-      keygen.ts         CLI: print an Ed25519 manifest-signing keypair
+      keygen.ts         CLI: print a manifest-signing keypair (--alg ed25519|secp256k1)
       index.ts          producer API barrel (ChunkArchive, for integration fixtures)
 ```
 
@@ -164,9 +165,10 @@ now live with the code they describe:
 
 | Read | For |
 |---|---|
-| [`packages/core/README.md`](packages/core/README.md) | the `Store` seam, the `Manifest` class API, sha256/Ed25519 crypto, shared `CanonicalEvent`/`Hex` types |
+| [`packages/core/README.md`](packages/core/README.md) | the `Store` seam, the `Manifest` class API, sha256 + signing crypto, shared `CanonicalEvent`/`Hex` types |
 | [`packages/producer/README.md`](packages/producer/README.md) | the scraper / chunk-builder / orchestrator CLIs (flags + worked examples), module internals, every input/output data format, the producer invariants, and publishing to GCS |
 | [`packages/client/README.md`](packages/client/README.md) | the `Client` library (streaming, filters, verification, signatures) and the `state-client` CLI |
+| [`docs/RAILGUN.md`](docs/RAILGUN.md) | consuming the Railgun stream — the event set across the contract's V1/V2.0/V2.1 upgrades, leaf-position and leaf-hash rules, the mapping to kohaku's `UtxoSyncer`, and what is deliberately not served |
 | [`DEPLOY.md`](DEPLOY.md) | running the producer as a Cloud Run Job + Scheduler behind Cloud CDN |
 | [`SPEC.md`](SPEC.md) | the normative wire spec; the **algorithms & invariants** a replica must honor are stated here, with the producer README giving the operational restatement |
 
@@ -220,7 +222,7 @@ pipe, every flag, and the library APIs.
 
 Built and verified: scraper, chunk-builder, orchestrator, storage abstraction
 (`DiskStore` + `HttpStore` + `GcsStore`), hot heads, batching, the client library
-+ CLI, **Ed25519 manifest signing**, and a **browser-safe consumer library**.
++ CLI, **multi-algorithm manifest signing**, and a **browser-safe consumer library**.
 
 **Browser-safe client (done).** The consumer library uses only web-standard APIs
 that also exist in Node 18+ — gzip via `DecompressionStream`, `Uint8Array` +
@@ -229,9 +231,14 @@ that also exist in Node 18+ — gzip via `DecompressionStream`, `Uint8Array` +
 test asserts no `node:` imports in its graph). The CLI, producer, and `DiskStore`/
 `GcsStore` remain Node-only by design.
 
-**Manifest signing (done, opt-in).** Detached Ed25519 over the raw `index.json`.
-Producer signs when `MANIFEST_SIGNING_KEY` is set; consumer verifies when a
-`--public-key` is supplied.
+**Manifest signing (done, opt-in).** Detached signatures over the raw
+`index.json`: an `index.json.sigs` envelope carrying one entry per algorithm, plus
+the original bare-hex `index.json.sig` for consumers pinned to it. Ed25519 is
+built in; **secp256k1** is an opt-in subpath so the browser client does not carry
+the curve by default (18.7 KB gz without, 25.3 KB with). Producer signs with every
+`MANIFEST_SIGNING_KEY*` that is set; the consumer verifies when a `--public-key`
+is supplied, and **any** one matching key accepts the manifest — reach, not
+strength (SPEC §9.1).
 
 Not yet built (and where they slot in):
 

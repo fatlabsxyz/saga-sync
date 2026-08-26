@@ -1,6 +1,7 @@
 import type { Hex } from "./hex.js";
 import type { Store } from "./store.js";
-import type { ManifestSigner } from "./signing.js";
+import type { ManifestSigner, ManifestKeySigner } from "./signing.js";
+import { encodeSignatureEnvelope } from "./signing.js";
 
 // One entry in the manifest — describes a sealed chunk or a hot head. Produced
 // by ChunkArchive, stored by Manifest.
@@ -75,7 +76,15 @@ const WRITE_THROTTLE_MS = 1000;
 export type ManifestLoadOptions = {
   // When set, each write also emits a detached `${key}.sig` signature over the
   // serialized manifest bytes. Producer-side only.
+  //
+  // Legacy single-signer form: a bare function cannot report its own public key,
+  // so it can only produce the one-signature `.sig` file. Prefer `signers`.
   signer?: ManifestSigner;
+  // Multi-algorithm form: every signer signs the identical serialized bytes and
+  // all the signatures go into the `${key}.sigs` envelope. The Ed25519 signer (if
+  // present) ALSO writes the legacy `${key}.sig`, so consumers pinned to the old
+  // single-signature file keep working. Producer-side only.
+  signers?: ManifestKeySigner[];
 };
 
 // Re-key an object with its keys sorted, so serialized output does not depend on
@@ -103,6 +112,7 @@ function orderedEntry(e: ProtocolEntry): Record<string, unknown> {
 // Single-writer only (the orchestrator's lockfile guarantees that).
 export class Manifest {
   private signer?: ManifestSigner;
+  private signers: ManifestKeySigner[] = [];
 
   private constructor(
     private readonly store: Store,
@@ -154,6 +164,7 @@ export class Manifest {
     }
     const manifest = new Manifest(store, key, data);
     manifest.signer = opts.signer;
+    manifest.signers = opts.signers ?? [];
     return manifest;
   }
 
@@ -275,6 +286,20 @@ export class Manifest {
     return this.touch();
   }
 
+  // Drop a stream entirely — its metadata and every chunk pointer. No-ops on an
+  // unknown id. This only removes the index entry; deleting the chunk objects it
+  // pointed at is the caller's job (they are no longer referenced either way).
+  //
+  // The one mutation that is not part of the normal publish loop: a stream is
+  // retired when its published chunks are known to be wrong (e.g. scraped under
+  // an incomplete event-topic set), which the block-range bookkeeping cannot
+  // detect on its own.
+  removeProtocol(protocolId: string): Promise<void> {
+    if (this.data.availableProtocols[protocolId] === undefined) return Promise.resolve();
+    delete this.data.availableProtocols[protocolId];
+    return this.touch();
+  }
+
   // Fill a stream's descriptive metadata — WRITE-ONCE: only fields still unset
   // are populated, so config edits to an existing stream do not propagate (its
   // metadata describes chunks already published under the original values).
@@ -378,12 +403,39 @@ export class Manifest {
     };
     const bytes = new TextEncoder().encode(JSON.stringify(ordered, null, 2) + "\n");
     await this.store.put(this.key, bytes);
-    // Write the detached signature after the manifest so a reader that sees the
-    // new .sig is reading against the new manifest. (The two objects are not
-    // written atomically; a consumer that fetches a mismatched pair mid-publish
-    // fails verification and retries.)
-    if (this.signer) {
-      await this.store.put(`${this.key}.sig`, new TextEncoder().encode(this.signer(bytes) + "\n"));
+    // Write the detached signatures after the manifest so a reader that sees a
+    // new signature file is reading against the new manifest. (The objects are
+    // not written atomically; a consumer that fetches a mismatched pair
+    // mid-publish fails verification and retries.)
+    //
+    // Two files, deliberately. `.sigs` is the multi-algorithm envelope; `.sig`
+    // is the original bare-hex Ed25519 signature, still written so already-pinned
+    // consumers keep verifying without an upgrade. `.sig` is written last for the
+    // same ordering reason.
+    // Any signature file this write does NOT refresh is deleted rather than left
+    // behind. A stale signature is strictly worse than a missing one: it still
+    // parses, the consumer prefers `.sigs` over `.sig`, and verification fails
+    // for everyone — whereas a missing `.sigs` simply falls back to `.sig`.
+    // (Learned the hard way: a maintenance script signing with only the legacy
+    // Ed25519 signer refreshed `.sig`, left `.sigs` signed over the previous
+    // manifest, and broke every verifying consumer of a live bucket.)
+    const encoder = new TextEncoder();
+    if (this.signers.length > 0) {
+      const entries = this.signers.map((s) => ({
+        alg: s.alg,
+        publicKey: s.publicKey,
+        signature: s.sign(bytes),
+      }));
+      await this.store.put(`${this.key}.sigs`, encodeSignatureEnvelope(entries));
+      const ed25519 = entries.find((e) => e.alg === "ed25519");
+      if (ed25519) {
+        await this.store.put(`${this.key}.sig`, encoder.encode(ed25519.signature + "\n"));
+      } else {
+        await this.store.delete(`${this.key}.sig`); // no Ed25519 key: nothing valid to leave there
+      }
+    } else if (this.signer) {
+      await this.store.put(`${this.key}.sig`, encoder.encode(this.signer(bytes) + "\n"));
+      await this.store.delete(`${this.key}.sigs`); // legacy signer cannot fill an envelope
     }
   }
 }

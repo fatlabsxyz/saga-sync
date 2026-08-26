@@ -2,7 +2,8 @@
 # Provision + deploy the daily scraper as a Cloud Run Job triggered by Cloud
 # Scheduler. Idempotent: describes-then-create-or-update for each resource.
 # Run from the repo root. Requires: gcloud, an authenticated account with
-# project-owner-ish rights, and the two secrets created first (see SECRETS below).
+# project-owner-ish rights, a running Docker daemon (the default BUILD=local —
+# see BUILD below), and the two secrets created first (see SECRETS below).
 set -euo pipefail
 
 # ---- fill these in (or export before running) ----
@@ -11,7 +12,13 @@ REGION="${REGION:-us-central1}"
 REPO="${REPO:-scraper}"                                  # Artifact Registry repo
 IMAGE="${IMAGE:-$REGION-docker.pkg.dev/$PROJECT/$REPO/scraper}"
 TAG="${TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo latest)}"
-BUILD="${BUILD:-cloud}"                                  # cloud | local | skip
+# local | cloud | skip. Defaults to `local`: Cloud Build needs the build service
+# account ($PROJECT_NUMBER-compute@developer.gserviceaccount.com) to hold
+# roles/cloudbuild.builds.builder for source access, and granting that needs
+# project IAM admin — which deployers here have repeatedly not had. A local build
+# needs only artifactregistry.writer, so it works out of the box. Set BUILD=cloud
+# once that role is granted (or to build without a local Docker daemon).
+BUILD="${BUILD:-local}"
 
 BUCKET="${BUCKET:?set BUCKET=your-state-bucket (output)}"
 # Overridable so a second chain can write under a prefix (e.g. gs://my-state-bucket/sepolia).
@@ -59,6 +66,12 @@ case "$BUILD" in
           # --platform linux/amd64: Cloud Run needs amd64 even on an arm64 Mac.
           # --provenance=false: emit a plain image manifest, not an OCI index with
           # attestations (Cloud Run rejects the index type).
+    docker info >/dev/null 2>&1 || {
+      echo "  !! BUILD=local (the default) needs a running Docker daemon — start Docker Desktop."
+      echo "     Alternatives: BUILD=skip to reuse $IMAGE:$TAG if it is already pushed,"
+      echo "     or BUILD=cloud if the build SA has roles/cloudbuild.builds.builder."
+      exit 1
+    }
     gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
     docker build --platform linux/amd64 --provenance=false -t "$IMAGE:$TAG" .
     docker push "$IMAGE:$TAG" ;;
@@ -96,6 +109,18 @@ for S in "$RPC_SECRET" scraper-signing-key; do
 done
 [ "$MISSING" = 1 ] && exit 1
 
+# Optional: a secp256k1 signing key, so the manifest also carries an
+# Ethereum-shaped signature. Absent by default — bound only if the secret exists,
+# so this stays a no-op for deployments that don't want it.
+SECP_SECRET=scraper-signing-key-secp256k1
+SECP_BINDING=""
+if gcloud secrets describe "$SECP_SECRET" --project "$PROJECT" >/dev/null 2>&1; then
+  gcloud secrets add-iam-policy-binding "$SECP_SECRET" --project "$PROJECT" \
+    --member "serviceAccount:$SA" --role roles/secretmanager.secretAccessor >/dev/null
+  SECP_BINDING=",MANIFEST_SIGNING_KEY_SECP256K1=$SECP_SECRET:latest"
+  echo "  + $SECP_SECRET found — manifests will also carry a secp256k1 signature"
+fi
+
 echo "==> upload config to the bucket"
 gcloud storage cp "$CONFIG_FILE" "$CONFIG_URI"
 
@@ -105,7 +130,7 @@ JOB_FLAGS=(
   --image "$IMAGE:$TAG"
   --service-account "$SA"
   --set-env-vars "CONFIG_URI=$CONFIG_URI,OUTPUT_URI=$OUTPUT_URI"
-  --set-secrets "RPC=$RPC_SECRET:latest,MANIFEST_SIGNING_KEY=scraper-signing-key:latest"
+  --set-secrets "RPC=$RPC_SECRET:latest,MANIFEST_SIGNING_KEY=scraper-signing-key:latest$SECP_BINDING"
   # The orchestrator scrapes protocols in parallel (default --concurrency 4).
   # Each in-flight protocol buffers up to ~10 MiB, so give the job headroom;
   # raise memory and concurrency together (and mind the RPC rate limit) to go

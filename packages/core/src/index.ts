@@ -21,9 +21,27 @@ export type {
 export {
   ManifestSignatureError,
   verifyManifestSignature,
+  verifyManifestSignatures,
   signManifest,
   generateKeyPair,
   publicKeyFromSecret,
   signerFromEnv,
+  signersFromEnv,
+  createSigner,
+  registerSignatureAlgorithm,
+  registeredAlgorithms,
+  signatureAlgorithm,
+  algorithmForPublicKey,
+  prehashForEcdsa,
+  encodeSignatureEnvelope,
+  parseSignatureEnvelope,
+  SIGNATURE_ENVELOPE_VERSION,
 } from "./signing.js";
-export type { ManifestSigner, KeyPair } from "./signing.js";
+export type {
+  ManifestSigner,
+  ManifestKeySigner,
+  KeyPair,
+  SignatureAlgorithm,
+  SignatureAlgorithmImpl,
+  SignatureEntry,
+} from "./signing.js";

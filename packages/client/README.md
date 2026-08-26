@@ -4,7 +4,7 @@ The consumer side of **saga-sync** — the reference implementation of
 [privacy-protocol-state-distribution](../../README.md). Given a manifest URL it
 reconstructs a privacy protocol's event history by downloading the published
 static files and **verifying every one** against the manifest — no trust in the
-publisher beyond the manifest itself (and, optionally, its Ed25519 signature).
+publisher beyond the manifest itself (and, optionally, its signature).
 
 Install just this package to consume published state — it pulls in
 [`@saga-sync/core`](../core) and `@noble/*`, and **nothing else**: no viem, no
@@ -110,14 +110,37 @@ Everything the client serves is verified — **cache hits included**:
 
 ### Manifest signatures (optional)
 
-Supply a publisher public key and the client fetches `index.json.sig` and verifies
-the **Ed25519 signature over the raw `index.json` bytes before parsing** — mandatory
-once enabled (missing or mismatched signature throws). Because the manifest holds
-every chunk's digest, one signature transitively authenticates the whole dataset.
+Supply a publisher public key and the client fetches the manifest's signature
+(`index.json.sigs`, falling back to the legacy `index.json.sig`) and verifies it
+**over the raw `index.json` bytes before parsing** — mandatory once enabled
+(missing or mismatched signature throws). Because the manifest holds every chunk's
+digest, one signature transitively authenticates the whole dataset.
 
 ```ts
 const client = new Client({ source: new HttpStore(baseUrl), publicKey: "0x…" });
 ```
+
+A manifest may carry several signatures, one per algorithm. Pass one key or
+several; each key's algorithm is inferred from its length (32 bytes → Ed25519,
+33 or 65 → secp256k1), and verification passes if **any** of them verifies:
+
+```ts
+const client = new Client({ source, publicKey: ["0x…ed25519", "0x…secp256k1"] });
+```
+
+Two things worth knowing before pinning more than one key:
+
+- Any single valid signature accepts the manifest, so the trust root is only as
+  strong as the **weakest** key you pin. More algorithms mean more reach, not
+  more security.
+- secp256k1 is **not** bundled by default — it would grow this library by about a
+  third. Enable it with a side-effect import:
+
+  ```ts
+  import "@saga-sync/core/secp256k1";
+  ```
+
+  The `state-client` CLI does this already.
 
 ## Library API
 
@@ -163,7 +186,8 @@ state-client <command> <manifest-url> [<protocol-id>] [options]
   --hot                  chunks: include the mutable hot head
   --cache-dir <path>     stream: local cache of verified sealed chunks
   --concurrency <n>      stream: parallel chunk fetches (default 4)
-  --public-key <hex>     require + verify the manifest's Ed25519 signature
+  --public-key <hex>     require + verify the manifest's signature (repeatable;
+                         Ed25519 or secp256k1, inferred from the key length)
 ```
 
 Stream by address instead of naming the id:
@@ -174,7 +198,8 @@ state-client stream https://cdn.example/pp-state/ --address 0x12d66f87… --chai
 
 `stream` emits NDJSON on stdout + a summary on stderr; the query commands print a
 human table or, with `--json`, structured JSON. `--public-key` applies to all
-commands and verifies `index.json.sig` before trusting the manifest.
+commands and verifies the manifest's signature before trusting it; pass it more
+than once to accept any of several keys.
 
 Exit codes: `0` ok · `1` usage / fetch / not-found · `3` `head --since-block` found
 nothing newer.

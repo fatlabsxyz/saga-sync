@@ -6,7 +6,15 @@ import { DiskStore } from "./disk-store.js";
 import { Manifest } from "./manifest.js";
 import type { ChunkMeta } from "./manifest.js";
 import type { Store } from "./store.js";
-import { generateKeyPair, signManifest, verifyManifestSignature } from "./signing.js";
+import {
+  createSigner,
+  generateKeyPair,
+  parseSignatureEnvelope,
+  signManifest,
+  verifyManifestSignature,
+  verifyManifestSignatures,
+} from "./signing.js";
+import "./secp256k1.js";
 
 const meta = (overrides: Partial<ChunkMeta> = {}): ChunkMeta => ({
   fromBlock: "0xc50101",
@@ -120,6 +128,29 @@ describe("Manifest", () => {
     await m.flush();
     const reloaded = (await Manifest.load(store)).snapshot();
     expect(reloaded.availableProtocols["proto-a"]?.hotHead).toBeUndefined();
+  });
+
+  it("removeProtocol drops the stream and persists its absence", async () => {
+    const m = await Manifest.load(store);
+    await m.appendChunk("proto-a", meta());
+    await m.appendChunk("proto-b", meta());
+    await m.setHotHead("proto-a", meta());
+    await m.setProtocolMeta("proto-a", { protocol: "doomed" });
+    await m.removeProtocol("proto-a");
+    expect(m.protocolIds()).toEqual(["proto-b"]);
+    expect(m.hotHead("proto-a")).toBeUndefined();
+    expect(m.protocolName("proto-a")).toBeUndefined();
+    await m.flush();
+    const reloaded = await Manifest.load(store);
+    expect(reloaded.protocolIds()).toEqual(["proto-b"]);
+    expect(reloaded.sealedChunks("proto-b")).toHaveLength(1);
+  });
+
+  it("removeProtocol is a no-op on an unknown stream", async () => {
+    const m = await Manifest.load(store);
+    await m.appendChunk("proto-a", meta());
+    await m.removeProtocol("nope");
+    expect(m.protocolIds()).toEqual(["proto-a"]);
   });
 
   it("throws on a corrupt manifest rather than silently resetting", async () => {
@@ -258,6 +289,101 @@ describe("Manifest", () => {
       expect(() =>
         verifyManifestSignature(manifestBytes!, new TextDecoder().decode(sig!).trim(), publicKey),
       ).not.toThrow();
+    });
+
+    it("a legacy bare `signer` writes only index.json.sig, never the envelope", async () => {
+      const { secretKey } = generateKeyPair();
+      const m = await Manifest.load(store, undefined, {
+        signer: (bytes) => signManifest(bytes, secretKey),
+      });
+      await m.appendChunk("proto", meta());
+      await m.flush();
+      expect(await store.get("index.json.sig")).not.toBeNull();
+      // A bare function cannot report its public key, so there is nothing to put
+      // in an envelope entry.
+      expect(await store.get("index.json.sigs")).toBeNull();
+    });
+
+    it("writes an envelope of every signer, and still the legacy .sig", async () => {
+      const ed = generateKeyPair("ed25519");
+      const k1 = generateKeyPair("secp256k1");
+      const m = await Manifest.load(store, undefined, {
+        signers: [createSigner(ed.secretKey, "ed25519"), createSigner(k1.secretKey, "secp256k1")],
+      });
+      await m.appendChunk("proto", meta());
+      await m.flush();
+
+      const manifestBytes = (await store.get("index.json"))!;
+      const entries = parseSignatureEnvelope((await store.get("index.json.sigs"))!);
+      expect(entries.map((e) => e.alg)).toEqual(["ed25519", "secp256k1"]);
+      // Each signature verifies independently over the identical manifest bytes.
+      expect(() => verifyManifestSignatures(manifestBytes, entries, [ed.publicKey])).not.toThrow();
+      expect(() => verifyManifestSignatures(manifestBytes, entries, [k1.publicKey])).not.toThrow();
+
+      // Back-compat: a consumer pinned to the old bare-hex file still verifies.
+      const legacy = new TextDecoder().decode((await store.get("index.json.sig"))!).trim();
+      expect(() => verifyManifestSignature(manifestBytes, legacy, ed.publicKey)).not.toThrow();
+    });
+
+    it("a legacy signer DELETES a pre-existing envelope instead of leaving it stale", async () => {
+      // The real incident: a maintenance script rewrote the manifest signing with
+      // only the Ed25519 key. `.sig` was fresh, `.sigs` still signed the previous
+      // manifest, and because the client prefers the envelope every verifying
+      // consumer broke. A missing `.sigs` falls back to `.sig` and verifies.
+      const ed = generateKeyPair("ed25519");
+      const k1 = generateKeyPair("secp256k1");
+      const first = await Manifest.load(store, undefined, {
+        signers: [createSigner(ed.secretKey, "ed25519"), createSigner(k1.secretKey, "secp256k1")],
+      });
+      await first.appendChunk("proto", meta({ toBlock: "0x10" }));
+      await first.flush();
+      expect(await store.get("index.json.sigs")).not.toBeNull();
+
+      const second = await Manifest.load(store, undefined, {
+        signer: (bytes) => signManifest(bytes, ed.secretKey),
+      });
+      await second.appendChunk("proto", meta({ toBlock: "0x20" }));
+      await second.flush();
+
+      expect(await store.get("index.json.sigs")).toBeNull();
+      const body = (await store.get("index.json"))!;
+      const legacy = new TextDecoder().decode((await store.get("index.json.sig"))!).trim();
+      expect(() => verifyManifestSignature(body, legacy, ed.publicKey)).not.toThrow();
+    });
+
+    it("a secp256k1-only signer DELETES a pre-existing legacy .sig", async () => {
+      // Mirror image: leaving an Ed25519 .sig behind would strand old clients on
+      // a signature over a manifest that no longer exists.
+      const ed = generateKeyPair("ed25519");
+      const k1 = generateKeyPair("secp256k1");
+      const first = await Manifest.load(store, undefined, {
+        signers: [createSigner(ed.secretKey, "ed25519")],
+      });
+      await first.appendChunk("proto", meta({ toBlock: "0x10" }));
+      await first.flush();
+      expect(await store.get("index.json.sig")).not.toBeNull();
+
+      const second = await Manifest.load(store, undefined, {
+        signers: [createSigner(k1.secretKey, "secp256k1")],
+      });
+      await second.appendChunk("proto", meta({ toBlock: "0x20" }));
+      await second.flush();
+
+      expect(await store.get("index.json.sig")).toBeNull();
+      expect(await store.get("index.json.sigs")).not.toBeNull();
+    });
+
+    it("omits the legacy .sig when no Ed25519 signer is configured", async () => {
+      const k1 = generateKeyPair("secp256k1");
+      const m = await Manifest.load(store, undefined, {
+        signers: [createSigner(k1.secretKey, "secp256k1")],
+      });
+      await m.appendChunk("proto", meta());
+      await m.flush();
+      expect(await store.get("index.json.sigs")).not.toBeNull();
+      // Nothing Ed25519 to write there, and writing a secp256k1 signature into a
+      // file old clients read as Ed25519 would fail confusingly.
+      expect(await store.get("index.json.sig")).toBeNull();
     });
   });
 

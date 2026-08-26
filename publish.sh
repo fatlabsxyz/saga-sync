@@ -16,13 +16,21 @@
 #   BUCKET=pp-state ./publish.sh [extra orchestrator flags...]
 #   BUCKET=pp-state/v1 CONFIG=./privacy-pools-config.json ./publish.sh --dry-run
 #
-# Signing (recommended): the orchestrator signs index.json → index.json.sig when
-# MANIFEST_SIGNING_KEY is set. Use a STABLE secret so the public key consumers pin
-# does not change between runs:
+# Signing (recommended): the orchestrator signs index.json when a signing key is
+# set — index.json.sigs (the envelope) plus index.json.sig (bare Ed25519, for
+# consumers pinned to the original file). Use a STABLE secret so the public key
+# consumers pin does not change between runs:
 #   MANIFEST_SIGNING_KEY=0x<ed25519-secret> BUCKET=pp-state ./publish.sh
+# Optionally add an Ethereum-shaped key alongside it; the manifest then carries
+# both signatures and a consumer may verify with EITHER (so the trust root is only
+# as strong as the weaker key — this buys reach, not strength):
+#   MANIFEST_SIGNING_KEY=0x<ed25519> MANIFEST_SIGNING_KEY_SECP256K1=0x<secp256k1> \
+#     BUCKET=pp-state ./publish.sh
 # Mint a throwaway key for a one-off publish (its public key is printed):
 #   GEN_KEY=1 BUCKET=pp-state ./publish.sh
-# Generate a stable keypair once with:  node packages/producer/dist/keygen.js
+# Generate stable keypairs once with:
+#   node packages/producer/dist/keygen.js
+#   node packages/producer/dist/keygen.js --alg secp256k1
 #
 # The orchestrator always scans to the current finalized tip (no --to-block).
 set -uo pipefail
@@ -68,13 +76,21 @@ import("@google-cloud/storage").then(async ({Storage}) => {
   || fail "cannot write to gs://$BUCKET — does the bucket exist and your account have objectAdmin?"
 log "preflight OK — build, @google-cloud/storage, ADC, and bucket write all verified"
 
-# ---- manifest signing (the orchestrator signs when MANIFEST_SIGNING_KEY is set) ----
+# ---- manifest signing (the orchestrator signs with every key that is set) ----
 PUBLIC_KEY=""
+SECP_PUBLIC_KEY=""
+# Resolve the optional secp256k1 key first, so it is reported whichever way the
+# Ed25519 key was supplied.
+if [ -n "${MANIFEST_SIGNING_KEY_SECP256K1:-}" ]; then
+  SECP_PUBLIC_KEY=$(node -e 'Promise.all([import("./packages/core/dist/index.js"),import("./packages/core/dist/secp256k1.js")]).then(([m])=>console.log(m.publicKeyFromSecret(process.argv[1],"secp256k1"))).catch(e=>{console.error(e.message);process.exit(1)})' "$MANIFEST_SIGNING_KEY_SECP256K1") \
+    || fail "MANIFEST_SIGNING_KEY_SECP256K1 is not a valid 0x-hex secp256k1 secret"
+  export MANIFEST_SIGNING_KEY_SECP256K1
+fi
 if [ -n "${MANIFEST_SIGNING_KEY:-}" ]; then
-  PUBLIC_KEY=$(node -e 'import("@saga-sync/core").then(m=>console.log(m.publicKeyFromSecret(process.argv[1]))).catch(e=>{console.error(e.message);process.exit(1)})' "$MANIFEST_SIGNING_KEY") \
+  PUBLIC_KEY=$(node -e 'import("./packages/core/dist/index.js").then(m=>console.log(m.publicKeyFromSecret(process.argv[1]))).catch(e=>{console.error(e.message);process.exit(1)})' "$MANIFEST_SIGNING_KEY") \
     || fail "MANIFEST_SIGNING_KEY is not a valid 0x-hex Ed25519 secret"
   export MANIFEST_SIGNING_KEY
-  log "signing ENABLED — public key: $PUBLIC_KEY"
+  log "signing ENABLED — ed25519 public key: $PUBLIC_KEY"
 elif [ "${GEN_KEY:-0}" = "1" ]; then
   eval "$(node packages/producer/dist/keygen.js | grep -E '^(MANIFEST_SIGNING_KEY|PUBLIC_KEY)=')"
   [ -n "${MANIFEST_SIGNING_KEY:-}" ] || fail "key generation failed"
@@ -82,9 +98,14 @@ elif [ "${GEN_KEY:-0}" = "1" ]; then
   log "signing ENABLED with a FRESH EPHEMERAL key — save the secret to reuse it next run:"
   log "    MANIFEST_SIGNING_KEY=$MANIFEST_SIGNING_KEY"
   log "  public key (consumers pin this): $PUBLIC_KEY"
-else
+elif [ -z "$SECP_PUBLIC_KEY" ]; then
   log "signing DISABLED — manifest will be unsigned."
   log "  set MANIFEST_SIGNING_KEY=0x<ed25519-secret> (stable) or GEN_KEY=1 to sign."
+fi
+if [ -n "$SECP_PUBLIC_KEY" ]; then
+  log "signing ALSO with secp256k1 — public key: $SECP_PUBLIC_KEY"
+  log "  consumers may verify with EITHER key, so the manifest is only as"
+  log "  trustworthy as the weaker of the two. See SPEC section 9.1."
 fi
 
 # ---- run, with a heartbeat so a silent multi-minute scrape still shows life ----
@@ -118,4 +139,8 @@ log "done. consumers read: ${CDN_BASE}index.json"
 if [ -n "$PUBLIC_KEY" ]; then
   log "signed manifest — consumers verify with --public-key $PUBLIC_KEY, e.g.:"
   log "  node packages/client/dist/cli.js stream $CDN_BASE <protocolId> --public-key $PUBLIC_KEY"
+fi
+if [ -n "$SECP_PUBLIC_KEY" ]; then
+  log "also signed with secp256k1 — either key verifies on its own:"
+  log "  node packages/client/dist/cli.js stream $CDN_BASE <protocolId> --public-key $SECP_PUBLIC_KEY"
 fi

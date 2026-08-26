@@ -10,7 +10,9 @@ import { ChunkArchive } from "./archive.js";
 import { ChunkAccumulator } from "./accumulator.js";
 import type { CompletedChunk } from "./accumulator.js";
 import { Manifest } from "@saga-sync/core";
-import { signerFromEnv } from "@saga-sync/core";
+import { signersFromEnv } from "@saga-sync/core";
+// Registers secp256k1 so MANIFEST_SIGNING_KEY_SECP256K1 is honoured.
+import "@saga-sync/core/secp256k1";
 import type { ChunkMeta } from "@saga-sync/core";
 
 const DEFAULT_SIZE_LIMIT = 10 * 1024 * 1024; // 10 MiB
@@ -181,7 +183,7 @@ async function main(): Promise<void> {
   const args = parseCliArgs();
   const store = createStore({ ...parseStoreTarget(args.output), dryRun: args.dryRun });
   const archive = new ChunkArchive(store);
-  const manifest = await Manifest.load(store, undefined, { signer: signerFromEnv() });
+  const manifest = await Manifest.load(store, undefined, { signers: signersFromEnv() });
 
   const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
   const { sealed } = await processStream(rl, {

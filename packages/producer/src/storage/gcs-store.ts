@@ -36,7 +36,10 @@ export function cacheControlFor(key: string): string {
 
 export function contentTypeFor(key: string): string {
   if (key.endsWith(".gz")) return "application/gzip";
-  if (key.endsWith(".json")) return "application/json";
+  // `.sigs` is the JSON signature envelope; `.sig` stays opaque — it is a bare
+  // hex string, not JSON. (Neither is cached long: only *.jsonl.gz is immutable,
+  // so both re-validate on the short TTL above.)
+  if (key.endsWith(".json") || key.endsWith(".sigs")) return "application/json";
   return "application/octet-stream";
 }
 
