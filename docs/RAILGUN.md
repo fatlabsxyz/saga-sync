@@ -168,17 +168,45 @@ Two things not to trip over:
   kohaku feeds it straight into `UtxoTreeIndex::included()`, so the value lands in
   the TXID leaf hash as-is. Do not treat it as a real position.
 
-**Read the provenance before you trust it.** This stream is **mirrored from the
-RAILGUN Subsquid index**, not derived from chain data — `protocolMetadata.source`
-says so. Everything else we publish is reproducible from the chain; this is
-reproducible only against that third-party index. It is a convenience (one
-transport, one verification path, CDN-backed) and not an independent source of
-truth. Kohaku validates TXID roots against the POI node before trusting proofs,
-which is what actually backstops it.
+### 5.2 Two streams, same records, different provenance
 
-The stream key names the provenance deliberately. A future
-`railgun-1-ops` — same record format, derived from calldata — will take the
-unqualified key; see `plans/RAILGUN_OPS_CALLDATA_PLAN.md`.
+| stream | `protocolMetadata.source` | how the records are produced |
+|---|---|---|
+| **`railgun-1-ops`** | `rpc-calldata` | Decoded from `transact()` calldata. Chain-derived, so reproducible by anyone with an archive node. **Prefer this one.** |
+| `railgun-1-ops-subsquid` | `subsquid` | Mirrored from the RAILGUN Squid. Reproducible only against that third-party index. Kept during migration. |
+
+The records are byte-identical — both are built by the same code
+(`packages/producer/src/sources/railgun-operation.ts`), which is why one can
+replace the other without rewriting published history.
+
+`railgun-1-ops` is verified against the squid over the full history as an
+independent oracle: two derivations of the same calldata agreeing is real
+evidence, where checking the mirror against its own upstream would only be a
+round-trip.
+
+### 5.3 One deliberate bug-compatibility
+
+In the **V1 era only**, a call that both transacts and shields emits two batch
+events — `CommitmentBatch` (carrying that operation's leaves) and then
+`GeneratedCommitmentBatch` (the shield's). The squid reports the **shield's**
+start position as the operation's `utxoBatchStartPositionOut`, which
+double-counts. Measured:
+
+| block | `CommitmentBatch` | `GeneratedCommitmentBatch` | squid, and us |
+|---|---|---|---|
+| 14,916,595 | 197 | 200 | 200 |
+| 14,957,311 | 270 | 272 | 272 |
+
+The chain-truthful value is the first column: at block 14,957,311 the operation
+has 3 commitments, one is the withdraw preimage, so its 2 leaves land at 270–271
+and the shield's begin at 272.
+
+**We reproduce the squid's value on purpose.** kohaku validates TXID roots against
+the POI node, which is built from squid-shaped data — a "correct" stream would
+make POI proofs fail to validate for these transactions, which is worse than
+useless for the consumer. It affects roughly 8 in 205 V1-era operations and
+nothing in V2. If the squid is ever fixed, this is the one place to change
+(the batch-event selection in `CalldataSource.fetch`, `calldata-source.ts`).
 
 ## 6. What neither stream carries
 
