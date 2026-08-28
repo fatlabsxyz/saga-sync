@@ -90,7 +90,7 @@ describe("toCanonicalOperation", () => {
   });
 
   it("emits zero as 0x0, not 0x or 0x00", () => {
-    const rec = toCanonicalOperation(rawOp(1n, 0n, 0n, { utxoTreeIn: "0" }) as never, "e");
+    const rec = toCanonicalOperation(rawOp(1n, 0n, 0n, { utxoTreeIn: "0" }) as never, "railgun-operation");
     expect(rec.opIndex).toBe("0x0");
     expect(rec.transactionIndex).toBe("0x0");
     expect(rec.utxoTreeIn).toBe("0x0");
@@ -105,7 +105,7 @@ describe("toCanonicalOperation", () => {
       commitments: ["0x1"],
       boundParamsHash: "0x0abc",
     });
-    const rec = toCanonicalOperation(short as never, "e");
+    const rec = toCanonicalOperation(short as never, "railgun-operation");
     expect(rec.nullifiers).toEqual([
       "0x00320f842b8835f5983636b535fb4af0701a8a1cfb225fa269eb6f8f5f8fb381",
     ]);
@@ -117,23 +117,23 @@ describe("toCanonicalOperation", () => {
 
   it("leaves an already-padded 32-byte value untouched", () => {
     const full = `0x${"ab".repeat(32)}`;
-    const rec = toCanonicalOperation(rawOp(1n, 0n, 0n, { boundParamsHash: full }) as never, "e");
+    const rec = toCanonicalOperation(rawOp(1n, 0n, 0n, { boundParamsHash: full }) as never, "railgun-operation");
     expect(rec.boundParamsHash).toBe(full);
   });
 
   it("refuses a bytes32 field wider than 32 bytes rather than truncating", () => {
     const bad = rawOp(1n, 0n, 0n, { boundParamsHash: `0x${"ff".repeat(33)}` });
-    expect(() => toCanonicalOperation(bad as never, "e")).toThrow(/exceeds 32 bytes/);
+    expect(() => toCanonicalOperation(bad as never, "railgun-operation")).toThrow(/exceeds 32 bytes/);
   });
 
   it("refuses a row whose id block disagrees with its blockNumber column", () => {
     const bad = rawOp(10n, 0n, 0n, { blockNumber: "11" });
-    expect(() => toCanonicalOperation(bad as never, "e")).toThrow(/disagrees/);
+    expect(() => toCanonicalOperation(bad as never, "railgun-operation")).toThrow(/disagrees/);
   });
 
   it("refuses a non-integer quantity rather than coercing it", () => {
     const bad = rawOp(1n, 0n, 0n, { utxoTreeOut: "not-a-number" });
-    expect(() => toCanonicalOperation(bad as never, "e")).toThrow(/not an integer/);
+    expect(() => toCanonicalOperation(bad as never, "railgun-operation")).toThrow(/not an integer/);
   });
 });
 
@@ -158,7 +158,7 @@ describe("SubsquidSource.fetch", () => {
   it("passes the block range through as inclusive bounds", async () => {
     const { impl, calls } = stubFetch([{ body: { data: { transactions: [] } } }]);
     const src = new SubsquidSource({
-      endpoint: ENDPOINT, entity: "e", finalizedTip: 100n, fetchImpl: impl, retryDelayMs: 0,
+      endpoint: ENDPOINT, entity: "railgun-operation", finalizedTip: 100n, fetchImpl: impl, retryDelayMs: 0,
     });
     await collect(src.fetch(7n, 9n));
     expect(calls[0]!.variables).toMatchObject({ gte: "7", lte: "9", limit: 20000 });
@@ -170,7 +170,7 @@ describe("SubsquidSource.fetch", () => {
       { body: { data: { transactions: [] } } },
     ]);
     const src = new SubsquidSource({
-      endpoint: ENDPOINT, entity: "e", finalizedTip: 100n, fetchImpl: impl, retryDelayMs: 0,
+      endpoint: ENDPOINT, entity: "railgun-operation", finalizedTip: 100n, fetchImpl: impl, retryDelayMs: 0,
     });
     await expect(collect(src.fetch(0n, 1n))).resolves.toEqual([]);
     expect(calls.length).toBeGreaterThanOrEqual(2);
@@ -179,7 +179,7 @@ describe("SubsquidSource.fetch", () => {
   it("gives up after 3 attempts and names the endpoint", async () => {
     const { impl } = stubFetch([{ status: 502, body: {} }]);
     const src = new SubsquidSource({
-      endpoint: ENDPOINT, entity: "e", finalizedTip: 100n, fetchImpl: impl, retryDelayMs: 0,
+      endpoint: ENDPOINT, entity: "railgun-operation", finalizedTip: 100n, fetchImpl: impl, retryDelayMs: 0,
     });
     await expect(collect(src.fetch(0n, 1n))).rejects.toThrow(/failed after 3 attempts/);
   });
@@ -189,7 +189,7 @@ describe("SubsquidSource.fetch", () => {
     // range" and seal it as truth.
     const { impl } = stubFetch([{ body: { errors: [{ message: "boom" }] } }]);
     const src = new SubsquidSource({
-      endpoint: ENDPOINT, entity: "e", finalizedTip: 100n, fetchImpl: impl, retryDelayMs: 0,
+      endpoint: ENDPOINT, entity: "railgun-operation", finalizedTip: 100n, fetchImpl: impl, retryDelayMs: 0,
     });
     await expect(collect(src.fetch(0n, 1n))).rejects.toThrow(/GraphQL errors/);
   });
@@ -198,7 +198,7 @@ describe("SubsquidSource.fetch", () => {
 describe("SubsquidSource.latestCoveredBlock", () => {
   const withHeight = (height: number | string, finalizedTip: bigint) => {
     const { impl } = stubFetch([{ body: { data: { squidStatus: { height } } } }]);
-    return new SubsquidSource({ endpoint: ENDPOINT, entity: "e", finalizedTip, fetchImpl: impl, retryDelayMs: 0 });
+    return new SubsquidSource({ endpoint: ENDPOINT, entity: "railgun-operation", finalizedTip, fetchImpl: impl, retryDelayMs: 0 });
   };
 
   it("CLAMPS to the finalized tip when the index runs ahead of finality", async () => {
@@ -214,7 +214,7 @@ describe("SubsquidSource.latestCoveredBlock", () => {
   it("throws rather than guessing when the index reports no height", async () => {
     const { impl } = stubFetch([{ body: { data: { squidStatus: null } } }]);
     const src = new SubsquidSource({
-      endpoint: ENDPOINT, entity: "e", finalizedTip: 10n, fetchImpl: impl, retryDelayMs: 0,
+      endpoint: ENDPOINT, entity: "railgun-operation", finalizedTip: 10n, fetchImpl: impl, retryDelayMs: 0,
     });
     await expect(src.latestCoveredBlock()).rejects.toThrow(/cannot establish a safe tip/);
   });
