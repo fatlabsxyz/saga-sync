@@ -888,26 +888,6 @@
         }
       ]
     },
-    "railgun-1-ops-subsquid": {
-      "chainId": "0x1",
-      "fromBlock": "0xe03295",
-      "chunkSettings": {
-        "maxSizeBytes": "0xa00000"
-      },
-      "protocol": "railgun",
-      "source": {
-        "kind": "subsquid",
-        "endpoint": "https://rail-squid.squids.live/squid-railgun-ethereum-v2/v/v1/graphql",
-        "entity": "railgun-operation"
-      },
-      "protocolMetadata": {
-        "contract": "RailgunSmartWallet",
-        "source": "subsquid",
-        "sourceEndpoint": "https://rail-squid.squids.live/squid-railgun-ethereum-v2/v/v1/graphql",
-        "entity": "railgun-operation",
-        "note": "Per-transaction operations for TXID/POI. Derived from transact() calldata by the RAILGUN Squid; not verifiable against chain logs. See docs/RAILGUN.md."
-      }
-    },
     "railgun-1-ops": {
       "chainId": "0x1",
       "fromBlock": "0xe03295",

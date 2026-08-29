@@ -168,21 +168,22 @@ Two things not to trip over:
   kohaku feeds it straight into `UtxoTreeIndex::included()`, so the value lands in
   the TXID leaf hash as-is. Do not treat it as a real position.
 
-### 5.2 Two streams, same records, different provenance
+### 5.2 Provenance
 
-| stream | `protocolMetadata.source` | how the records are produced |
-|---|---|---|
-| **`railgun-1-ops`** | `rpc-calldata` | Decoded from `transact()` calldata. Chain-derived, so reproducible by anyone with an archive node. **Prefer this one.** |
-| `railgun-1-ops-subsquid` | `subsquid` | Mirrored from the RAILGUN Squid. Reproducible only against that third-party index. Kept during migration. |
+`railgun-1-ops` is **chain-derived**: the records are decoded from `transact()`
+calldata, so anyone with an archive node can reproduce them — the same guarantee
+SPEC §10 makes for every other stream here. `protocolMetadata.source` reads
+`rpc-calldata`.
 
-The records are byte-identical — both are built by the same code
-(`packages/producer/src/sources/railgun-operation.ts`), which is why one can
-replace the other without rewriting published history.
+It is verified against the RAILGUN Squid as an independent **oracle**, not built
+from it: two derivations of the same calldata agreeing is real evidence. Zero
+differences over the full history — V1 1,479, V2.0 1,657, and 14,440 across a
+recent 500k-block window.
 
-`railgun-1-ops` is verified against the squid over the full history as an
-independent oracle: two derivations of the same calldata agreeing is real
-evidence, where checking the mirror against its own upstream would only be a
-round-trip.
+> A mirror stream, `railgun-1-ops-subsquid`, existed briefly while this one was
+> built and has been **retired**. If you pinned it, switch to `railgun-1-ops` —
+> the records are byte-identical, since both were produced by the same builder
+> (`packages/producer/src/sources/railgun-operation.ts`).
 
 ### 5.3 One deliberate bug-compatibility
 
