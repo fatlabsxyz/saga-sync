@@ -106,6 +106,12 @@ mutation. The **normative on-the-wire schema** is in the root
 
 ## Shared types
 
+- **`events.ts` — `CanonicalRecord`** — what a chunk line is: a `CanonicalEvent`
+  (log) or a `CanonicalEntity` (indexer-derived, e.g. Railgun operations, which
+  exist only in calldata). `isEntityRecord()` narrows. Entities sort by
+  `(blockNumber, transactionIndex, opIndex)` — a chain coordinate, so an
+  independent derivation produces identical bytes — and never share a stream with
+  logs, whose provenance is checkable and theirs is not. See SPEC §3.4.
 - **`events.ts` — `CanonicalEvent`** — the persisted log shape: all-lowercase
   `0x`-hex `contractAddress`, `eventTopic` (= `topics[0]`), `topics[]`, `data`,
   `blockNumber`, `logIndex`. The producer's `normalize()` writes it; the client

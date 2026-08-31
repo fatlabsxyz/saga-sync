@@ -1,7 +1,7 @@
-import type { CanonicalEvent } from "../scraper/normalize.js";
+import type { CanonicalRecord } from "@saga-sync/core";
 
-export type CompletedChunk = { events: CanonicalEvent[]; from: bigint; to: bigint };
-export type Trailing = { events: CanonicalEvent[]; fromBlock: bigint };
+export type CompletedChunk = { events: CanonicalRecord[]; from: bigint; to: bigint };
+export type Trailing = { events: CanonicalRecord[]; fromBlock: bigint };
 
 // Block-aligned chunk partitioning — pure, no I/O. Events are fed in
 // (blockNumber, logIndex) order; the accumulator buffers the in-progress block
@@ -14,9 +14,9 @@ export type Trailing = { events: CanonicalEvent[]; fromBlock: bigint };
 // in-progress block and hands back the trailing accumulator — the caller seals
 // it as a final chunk or carries it forward as a hot head.
 export class ChunkAccumulator {
-  private accumulated: CanonicalEvent[] = [];
+  private accumulated: CanonicalRecord[] = [];
   private accumulatedBytes = 0;
-  private pending: CanonicalEvent[] = [];
+  private pending: CanonicalRecord[] = [];
   private pendingBytes = 0;
   private pendingBlock: bigint | null = null;
 
@@ -25,7 +25,7 @@ export class ChunkAccumulator {
     private chunkFrom: bigint,
   ) {}
 
-  add(event: CanonicalEvent): CompletedChunk | null {
+  add(event: CanonicalRecord): CompletedChunk | null {
     const eventBlock = BigInt(event.blockNumber);
     const lineBytes = Buffer.byteLength(JSON.stringify(event) + "\n", "utf8");
     let completed: CompletedChunk | null = null;

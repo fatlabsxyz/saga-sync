@@ -122,7 +122,11 @@ if gcloud secrets describe "$SECP_SECRET" --project "$PROJECT" >/dev/null 2>&1; 
 fi
 
 echo "==> upload config to the bucket"
-gcloud storage cp "$CONFIG_FILE" "$CONFIG_URI"
+# Set Cache-Control explicitly. GCS defaults public objects to max-age=3600, which
+# would leave anyone reading the config over HTTP an hour behind a deploy — and
+# inconsistent with GcsStore, which gives every mutable object max-age=30. The job
+# itself reads through the GCS API and is unaffected either way.
+gcloud storage cp "$CONFIG_FILE" "$CONFIG_URI" --cache-control="public, max-age=30"
 
 echo "==> Cloud Run Job ($JOB)"
 JOB_FLAGS=(

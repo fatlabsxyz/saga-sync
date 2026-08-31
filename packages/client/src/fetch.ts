@@ -1,4 +1,4 @@
-import type { CanonicalEvent } from "@saga-sync/core";
+import type { CanonicalRecord } from "@saga-sync/core";
 import type { Store } from "@saga-sync/core";
 import type { ChunkMeta } from "@saga-sync/core";
 import { verifyDigest, verifyChunkEvents } from "./verify.js";
@@ -33,7 +33,7 @@ const utf8 = new TextDecoder();
 export async function decodeAndVerify(
   compressed: Uint8Array,
   meta: ChunkMeta,
-): Promise<CanonicalEvent[]> {
+): Promise<CanonicalRecord[]> {
   // Defensive: a zero-byte file is not produced by the pipeline (an empty
   // events list still gzips to ~20 bytes), but if encountered, hand empty
   // bytes to verify rather than letting gunzip throw.
@@ -44,7 +44,7 @@ export async function decodeAndVerify(
     .decode(uncompressed)
     .split("\n")
     .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as CanonicalEvent);
+    .map((line) => JSON.parse(line) as CanonicalRecord);
   verifyChunkEvents(meta, events);
   return events;
 }
@@ -52,7 +52,7 @@ export async function decodeAndVerify(
 // Fetch a chunk from `store`, verify, return its events. Throws
 // ChunkNotFoundError if the store has no such object, DigestMismatchError if
 // the bytes do not match the manifest.
-export async function fetchChunkFrom(store: Store, meta: ChunkMeta): Promise<CanonicalEvent[]> {
+export async function fetchChunkFrom(store: Store, meta: ChunkMeta): Promise<CanonicalRecord[]> {
   const compressed = await store.get(meta.file);
   if (!compressed) throw new ChunkNotFoundError(meta);
   return decodeAndVerify(compressed, meta);

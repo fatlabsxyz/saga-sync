@@ -20,4 +20,5 @@ export type { ChunkMeta, ManifestData, LoadManifestOptions } from "./manifest.js
 // Manifest signature verification (Ed25519) — consumers pin a public key.
 export { verifyManifestSignature, ManifestSignatureError } from "@saga-sync/core";
 
-export type { CanonicalEvent } from "@saga-sync/core";
+export type { CanonicalEvent, CanonicalEntity, CanonicalRecord } from "@saga-sync/core";
+export { isEntityRecord } from "@saga-sync/core";

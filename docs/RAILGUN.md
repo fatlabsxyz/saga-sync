@@ -110,24 +110,83 @@ The squid's `hash` on a `ShieldCommitment` is a convenience — kohaku's
 `Shield::hash()` already falls back to Poseidon over the preimage when it is
 absent, which is the path a log-backed syncer takes.
 
-## 5. What this stream does not carry
+## 5. Operations (TXID / POI) — a separate stream
 
-**Operations / TXID / POI.** The squid's `transaction` entity —
-`boundParamsHash`, `utxoTreeIn`, `utxoTreeOut`, `utxoBatchStartPositionOut`, and
-the per-transaction grouping of nullifiers and commitments — **cannot be derived
-from logs**. Those fields exist only in `transact()` calldata (and behind
-relay/broadcaster wrappers). Kohaku needs them only under `with_poi()`, which is
-off by default; the default UTXO path is fully served by this stream.
+`boundParamsHash`, `utxoTreeIn`, `utxoTreeOut`, `utxoBatchStartPositionOut` and
+the per-transaction grouping of nullifiers and commitments **cannot be derived
+from logs**. They exist only in `transact()` calldata. Kohaku needs them only
+under `with_poi()`, which is off by default.
 
-Serving them is planned separately: see `plans/RAILGUN_OPS_SUBSQUID_PLAN.md`
-(mirror the squid) and `plans/RAILGUN_OPS_CALLDATA_PLAN.md` (derive from calldata
-and drop the dependency).
+They are published as their own stream, **`railgun-1-ops-subsquid`**, one record
+per operation:
 
-Also not carried: the squid's `Token`, `VerificationHash`, and
+```json
+{"entity":"railgun-operation","blockNumber":"0x189ad7b","transactionIndex":"0x29","opIndex":"0x0",
+ "nullifiers":["0x…"],"commitments":["0x…"],"boundParamsHash":"0x…",
+ "utxoTreeIn":"0x3","utxoTreeOut":"0x3","utxoBatchStartPositionOut":"0xf167"}
+```
+
+These are **entity records**, not logs (SPEC §3.4) — they carry an `entity` field
+and sort by `(blockNumber, transactionIndex, opIndex)` rather than
+`(blockNumber, logIndex)`. A stream never mixes the two kinds, so
+`railgun-1-smartwallet` is all logs and `railgun-1-ops-subsquid` is all
+operations. The ordering triple is chronological, which is what `txid_indexer`
+requires when appending to the TXID tree.
+
+### 5.1 Mapping onto kohaku's `Operation`
+
+Field names match the squid's, so the mapping is one-to-one. The **encodings** are
+not all the same, because this format uses minimal `0x`-hex for every quantity
+(SPEC §3.3) while the squid returns decimal strings for some:
+
+| field | kohaku's `subsquid_types::Operation` | here | conversion |
+|---|---|---|---|
+| `boundParamsHash` | `U256` | `0x…` (32 bytes) | none |
+| `nullifiers[]` | `Vec<U256>` | `0x…` (32 bytes) | none |
+| `commitments[]` | `Vec<U256>` | `0x…` (32 bytes) | none |
+| `blockNumber` | `deserialize_string_to_u64` (decimal) | `0x189ad7b` | `u64::from_str_radix(s.trim_start_matches("0x"), 16)` |
+| `utxoTreeIn` | `deserialize_string_to_u32` (decimal) | `0x3` | as above, `u32` |
+| `utxoTreeOut` | `deserialize_string_to_u32` (decimal) | `0x3` | as above, `u32` |
+| `utxoBatchStartPositionOut` | `deserialize_string_to_u32` (decimal) | `0xf167` | as above, `u32` |
+
+The `U256` fields need no conversion: ruint's deserializer takes `0x`-hex, which
+is what both the squid and this stream emit. Note kohaku's struct is a **GraphQL
+wire type** — an adapter reading these chunks parses NDJSON and builds
+`syncer::Operation` directly, so it never uses that struct anyway.
+
+Two things not to trip over:
+
+- **`bytes32` values are always a full 32-byte word here.** The squid strips
+  leading zero bytes (measured over the full history: 2,879 `boundParamsHash` at
+  31 bytes, 14 at 30, plus 22 nullifiers and 42 commitments), which would make the
+  published bytes depend on an indexer's formatting and prevent a calldata-derived
+  source from ever matching them. They are re-padded here. The numeric value is
+  identical either way, so a `U256` parse is unaffected.
+- **`utxoTreeOut` / `utxoBatchStartPositionOut` of `99999` is a sentinel**, not a
+  tree index — it means "no UTXO output", and appears on unshield-only
+  transactions (12,071 of 128,888 records). It is passed through verbatim because
+  kohaku feeds it straight into `UtxoTreeIndex::included()`, so the value lands in
+  the TXID leaf hash as-is. Do not treat it as a real position.
+
+**Read the provenance before you trust it.** This stream is **mirrored from the
+RAILGUN Subsquid index**, not derived from chain data — `protocolMetadata.source`
+says so. Everything else we publish is reproducible from the chain; this is
+reproducible only against that third-party index. It is a convenience (one
+transport, one verification path, CDN-backed) and not an independent source of
+truth. Kohaku validates TXID roots against the POI node before trusting proofs,
+which is what actually backstops it.
+
+The stream key names the provenance deliberately. A future
+`railgun-1-ops` — same record format, derived from calldata — will take the
+unqualified key; see `plans/RAILGUN_OPS_CALLDATA_PLAN.md`.
+
+## 6. What neither stream carries
+
+Not carried: the squid's `Token`, `VerificationHash`, and
 `CommitmentBatchEventNew` entities (indexer normalization and bookkeeping — kohaku
 queries none of them), and Railgun on chains other than mainnet.
 
-## 6. Verifying the stream
+## 7. Verifying the streams
 
 `packages/producer/scripts/railgun-crosscheck.mjs` decodes the published stream
 the way a consumer would and asserts the resulting commitment / nullifier /
@@ -145,3 +204,16 @@ configured topic set and its own ABI table disagree, and reports differences per
 commitment kind — so a whole-class outage (which is what a stale event signature
 looks like) is obvious rather than buried in a total. Exits non-zero on any
 difference.
+
+For the operations stream, add `--ops` (which skips the log-topic gate). `--manifest`
+also accepts a local directory, so a stream can be checked before publishing:
+
+```bash
+node packages/producer/scripts/railgun-crosscheck.mjs --ops \
+  --manifest ./chunks --protocol railgun-1-ops-subsquid \
+  --from 25800000 --to 25830000
+```
+
+Note what that proves and what it does not: because the stream mirrors the squid,
+a match confirms our normalization and chunking are lossless — **not** that the
+underlying data is correct. Only an independent derivation can show that.

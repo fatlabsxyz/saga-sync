@@ -1,4 +1,5 @@
-import type { CanonicalEvent } from "@saga-sync/core";
+import type { CanonicalEvent, CanonicalRecord } from "@saga-sync/core";
+import { isEntityRecord } from "@saga-sync/core";
 import type { Hex } from "@saga-sync/core";
 import type { Store } from "@saga-sync/core";
 import type { ChunkMeta } from "@saga-sync/core";
@@ -87,7 +88,7 @@ export class Client {
   // Layer 2: fetch one chunk by its manifest entry. Goes through the cache
   // path (for sealed chunks) so callers get the same efficiency as
   // streamEvents.
-  fetchChunk(meta: ChunkMeta, opts: { hot?: boolean } = {}): Promise<CanonicalEvent[]> {
+  fetchChunk(meta: ChunkMeta, opts: { hot?: boolean } = {}): Promise<CanonicalRecord[]> {
     return opts.hot ? fetchChunkFrom(this.source, meta) : this.fetchSealed(meta);
   }
 
@@ -115,7 +116,7 @@ export class Client {
   async *streamEvents(
     target: StreamTarget,
     opts: StreamOptions = {},
-  ): AsyncGenerator<CanonicalEvent, void, void> {
+  ): AsyncGenerator<CanonicalRecord, void, void> {
     const manifest = await this.fetchManifest();
     let protocolId: string;
     let effectiveOpts = opts;
@@ -146,7 +147,7 @@ export class Client {
       "event topic(s)",
       (e) => e.eventTopic,
     );
-    const keep = (e: CanonicalEvent): boolean => keepAddress(e) && keepTopic(e);
+    const keep = (e: CanonicalRecord): boolean => keepAddress(e) && keepTopic(e);
 
     for await (const events of this.fetchSealedOrdered(sealed)) {
       for (const event of events) if (keep(event)) yield event;
@@ -161,7 +162,7 @@ export class Client {
   // Cache-aware sealed fetch: check cache → on miss, fetch from source, verify,
   // populate cache. Verification runs on both paths so every byte the
   // application sees was just verified.
-  private async fetchSealed(meta: ChunkMeta): Promise<CanonicalEvent[]> {
+  private async fetchSealed(meta: ChunkMeta): Promise<CanonicalRecord[]> {
     if (this.cache) {
       const cached = await this.cache.get(meta.file);
       if (cached) return await decodeAndVerify(cached, meta);
@@ -180,8 +181,8 @@ export class Client {
   // bounded by `concurrency`.
   private async *fetchSealedOrdered(
     metas: ChunkMeta[],
-  ): AsyncGenerator<CanonicalEvent[], void, void> {
-    const queue: Promise<CanonicalEvent[]>[] = [];
+  ): AsyncGenerator<CanonicalRecord[], void, void> {
+    const queue: Promise<CanonicalRecord[]>[] = [];
     let next = 0;
     while (next < metas.length && queue.length < this.concurrency) {
       queue.push(this.fetchSealed(metas[next++]!));
@@ -251,7 +252,7 @@ function buildSetFilter(
   tracked: Hex[] | undefined,
   label: string,
   pick: (event: CanonicalEvent) => Hex,
-): (event: CanonicalEvent) => boolean {
+): (event: CanonicalRecord) => boolean {
   if (requested === undefined) return () => true;
   const want = new Set(requested.map((v) => v.toLowerCase()));
   if (tracked) {
@@ -264,5 +265,8 @@ function buildSetFilter(
       );
     }
   }
-  return (event) => want.has(pick(event).toLowerCase());
+  // Entity records have no contract address or topic; a filter on either simply
+  // cannot match one. Excluding them is the honest answer — the alternative is
+  // throwing on a field they never had.
+  return (event) => !isEntityRecord(event) && want.has(pick(event).toLowerCase());
 }

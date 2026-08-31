@@ -32,12 +32,13 @@ for (const id of await client.listProtocols()) console.log(id);
 
 // Stream one protocol's full event history in block order.
 for await (const event of client.streamEvents("tornado-cash-1-eth-0.1")) {
-  // event: CanonicalEvent — { contractAddress, eventTopic, topics, data, blockNumber, logIndex }
+  // event: CanonicalRecord — for a log stream, a CanonicalEvent:
+  // { contractAddress, eventTopic, topics, data, blockNumber, logIndex }
   handle(event);
 }
 ```
 
-`streamEvents` returns an **`AsyncGenerator<CanonicalEvent>`**, not an array — you
+`streamEvents` returns an **`AsyncGenerator<CanonicalRecord>`**, not an array — you
 consume it once with `for await`. That's a deliberate memory choice: events are
 produced lazily and peak memory is bounded to roughly one decompressed chunk
 (~10 MiB) × the fetch concurrency, **independent of total history size**, so you
@@ -47,7 +48,7 @@ first chunk while later ones are still downloading. If you genuinely want the wh
 array, collect it yourself:
 
 ```ts
-const all: CanonicalEvent[] = [];
+const all: CanonicalRecord[] = [];
 for await (const e of client.streamEvents(id)) all.push(e);
 ```
 
@@ -102,9 +103,10 @@ Everything the client serves is verified — **cache hits included**:
   JSONL and compares it to the manifest entry; a mismatch throws
   `DigestMismatchError`.
 - **`verifyChunkEvents(meta, events)`** then enforces the canonical form the digest
-  can't catch on its own — every event within the chunk's `[from, to)` range and
-  strictly ascending by `(blockNumber, logIndex)`; violations throw
-  `CanonicalFormError`.
+  can't catch on its own — every record within the chunk's `[from, to)` range,
+  strictly ascending (logs by `(blockNumber, logIndex)`, entity records by
+  `(blockNumber, transactionIndex, opIndex)`), and no chunk mixing the two kinds;
+  violations throw `CanonicalFormError`.
 - A missing file throws `ChunkNotFoundError`, kept distinct from a digest mismatch
   so callers can tell "absent" from "tampered".
 
@@ -141,6 +143,29 @@ Two things worth knowing before pinning more than one key:
   ```
 
   The `state-client` CLI does this already.
+
+### Logs and entity records
+
+`streamEvents` yields **`CanonicalRecord`**, which is either a log (the six-field
+shape every stream has always had) or an **entity record** — something an indexer
+derived from data no log carries, such as Railgun's per-transaction operations.
+Narrow with `isEntityRecord`:
+
+```ts
+import { isEntityRecord } from "@saga-sync/core";
+
+for await (const record of client.streamEvents(id)) {
+  if (isEntityRecord(record)) handleEntity(record);   // entity, blockNumber, transactionIndex, opIndex, …
+  else handleLog(record);                              // contractAddress, eventTopic, topics, data, …
+}
+```
+
+A stream carries **one kind**, never a mix — the client rejects a chunk that
+interleaves them. So in practice you know which you are getting from the stream id,
+and the check above is a type-level narrowing rather than a per-record branch. The
+manifest's `protocolMetadata.source` tells you the provenance: absent or `"rpc"`
+means chain-derived and independently checkable; anything else means the records
+were mirrored from that source and are only as good as it is.
 
 ## Library API
 

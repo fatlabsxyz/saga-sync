@@ -31,15 +31,25 @@ async function makeArgs(
   const store = dryRun ? new DryRunStore(new DiskStore(dir)) : new DiskStore(dir);
   const archive = new ChunkArchive(store);
   const manifest = await Manifest.load(store);
+  // Manifest writes are coalesced and land asynchronously, so one can still be in
+  // flight when a test returns. Track it, and flush before the temp dir is
+  // removed — otherwise the late put recreates a file inside the directory
+  // rmSync just emptied and teardown fails with ENOTEMPTY.
+  openManifests.push(manifest);
   return { protocolId: "proto", fromBlock: 0x64n, toBlock: 0xc8n, sizeLimit, archive, manifest };
 }
+
+const openManifests: Manifest[] = [];
 
 describe("processStream", () => {
   let dir: string;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "chunk-cli-test-"));
   });
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  afterEach(async () => {
+    await Promise.all(openManifests.splice(0).map((m) => m.flush().catch(() => undefined)));
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   it("emits one empty chunk covering the full range when stdin is empty", async () => {
     const args = await makeArgs(dir, 1024);

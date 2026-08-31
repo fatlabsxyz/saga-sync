@@ -141,14 +141,38 @@ Each line is self-describing (it carries its own `contractAddress`/`eventTopic`)
 
 Chunks are content-addressed: a chunk's identity is the SHA-256 of its bytes (§7.2). For two scrapers to agree on a digest, the bytes must be produced deterministically. A conforming chunk MUST observe all of the following.
 
-1. **Field set and order.** Each event object contains exactly the six fields of §3.2, serialized in this order: `contractAddress`, `eventTopic`, `topics`, `data`, `blockNumber`, `logIndex`. No other keys. `eventTopic` MUST equal `topics[0]`.
+1. **Field set and order.** Each **log** object contains exactly the six fields of §3.2, serialized in this order: `contractAddress`, `eventTopic`, `topics`, `data`, `blockNumber`, `logIndex`. No other keys. `eventTopic` MUST equal `topics[0]`. (For the second record kind, see §3.4.)
 2. **Hex casing.** Every hex value is lowercase and `0x`-prefixed. Byte strings (`contractAddress` = 20 bytes, each `topics` entry = 32 bytes, `data` = arbitrary length) are emitted verbatim. The quantities `blockNumber` and `logIndex` are minimal hex — no leading zeros (e.g. `0x0`, `0x1a2b`).
 3. **JSON encoding.** Each event is encoded as compact JSON with no insignificant whitespace (no spaces after `:` or `,`), and `topics` is a JSON array in log order.
 4. **Line framing (JSONL).** One event per line, each line — including the last — terminated by a single `\n` (`U+000A`). An empty chunk (a scanned range with no matching events) is a **zero-byte** payload.
-5. **Ordering.** Events are globally sorted by `(blockNumber, logIndex)` ascending across the whole chunk — not grouped by contract or topic.
+5. **Ordering.** Records are globally sorted ascending across the whole chunk — logs by `(blockNumber, logIndex)`, entity records by `(blockNumber, transactionIndex, opIndex)` — not grouped by contract or topic. The order MUST be **strict**: no two records in a chunk may share a sort key.
 6. **Digest.** The digest (§7.2) is computed over these **uncompressed** JSONL bytes. gzip is transport only and never enters the digest, so compression level/implementation may vary freely.
 
 Because every byte is pinned, identical inputs (the same logs from the chain) plus identical configuration (`fromBlock`, `chunkSettings`) yield byte-identical chunks and therefore identical digests. See §10 for what this enables.
+
+### 3.4 Entity Records (non-log)
+
+Some protocol state is not in any log. Railgun's per-transaction operations, for example, exist only in `transact()` calldata: `boundParamsHash`, the input tree number, and the split of nullifiers and commitments across the transactions in one call. A stream MAY therefore carry **entity records** instead of logs.
+
+An entity record is distinguished on the wire by an `entity` field, which no log has. It MUST contain, in this order:
+
+| Field | Meaning |
+|---|---|
+| `entity` | Record kind, e.g. `"railgun-operation"`. Names the payload schema. |
+| `blockNumber` | Minimal hex quantity, as for a log. |
+| `transactionIndex` | Index of the transaction within its block. Minimal hex. |
+| `opIndex` | Index of the record within that transaction. Minimal hex. |
+
+followed by payload fields, whose names and order are fixed by the `entity` kind and otherwise **opaque to this spec** — exactly as a log's `data` is. §3.3's casing, JSON-encoding, framing and digest rules apply unchanged.
+
+The ordering triple is deliberately a **chain coordinate**, not an indexer's row identifier. This is what lets an independent implementation — one deriving the same records from calldata rather than mirroring an index — produce byte-identical output.
+
+For the same reason, a payload field whose underlying type is **fixed-width** (e.g. an ABI `bytes32`) MUST be emitted at its full width, zero-padded. Indexers commonly strip leading zero bytes; passing that through would make the published bytes depend on the upstream's formatting rather than on the value, and two implementations of the same record would disagree. Quantities remain minimal hex per §3.3 — the distinction is that a quantity has no width, a fixed-width type does.
+
+Two constraints:
+
+- **A stream carries one kind.** Logs and entity records MUST NOT be mixed within a stream. A log can be re-verified against an archive node; an entity record is a derivation and cannot. Interleaving them would let derived data shelter among independently checkable data.
+- **Provenance MUST be declared.** A stream of entity records SHOULD record how they were produced in `protocolMetadata` (e.g. `source: "subsquid"` with the endpoint). §10's reproducibility argument rests on chain immutability; records mirrored from a third-party index are reproducible only against **that index**, which can be reprocessed. Consumers need to be able to tell the difference.
 
 ## 4. Naming Conventions
 

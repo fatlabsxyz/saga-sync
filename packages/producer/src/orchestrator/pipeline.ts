@@ -1,27 +1,24 @@
-import type { PublicClient } from "viem";
-import { scrape } from "../scraper/scrape.js";
-import { normalize } from "../scraper/normalize.js";
-import type { CanonicalEvent } from "../scraper/normalize.js";
-import type { EventFilter } from "../scraper/config.js";
+import type { CanonicalRecord } from "@saga-sync/core";
+import type { ScraperSource } from "../sources/index.js";
 import { processStream } from "../chunk-builder/cli.js";
 import { ChunkArchive } from "../chunk-builder/archive.js";
 import { Manifest } from "@saga-sync/core";
 import type { ChunkMeta } from "@saga-sync/core";
 
 export type RunProtocolOptions = {
-  client: PublicClient;
+  // Where the records come from. The pipeline drives ranges and chunking and
+  // stays ignorant of whether these are logs off an RPC or an indexer's rows.
+  source: ScraperSource;
   protocolId: string;
   fromBlock: bigint;
   toBlock: bigint; // inclusive — same convention as scraper
-  events: EventFilter[];
   sizeLimit: number;
-  window: number;
   archive: ChunkArchive;
   manifest: Manifest;
   // Optional: events loaded from the protocol's previous hot head, plus the
   // fromBlock that hot head started at. When set, processStream pre-loads the
   // accumulator so the next sealed chunk's range begins at `hotHead.fromBlock`.
-  hotHead?: { events: CanonicalEvent[]; fromBlock: bigint };
+  hotHead?: { events: CanonicalRecord[]; fromBlock: bigint };
   // "seal" (default) seals the trailing partial at EOF; "suspend" returns it
   // for the caller to persist as a hot head.
   trailingMode?: "seal" | "suspend";
@@ -29,21 +26,16 @@ export type RunProtocolOptions = {
 
 export type RunProtocolResult = {
   sealed: ChunkMeta[];
-  trailing?: { events: CanonicalEvent[]; fromBlock: bigint; toBlock: bigint };
+  trailing?: { events: CanonicalRecord[]; fromBlock: bigint; toBlock: bigint };
 };
 
-// Compose scraper + chunk-builder in-process: scrape() yields raw logs, we
-// normalize and stringify into NDJSON lines, and processStream consumes them.
-// No subprocess, no stdio piping — errors propagate as exceptions.
+// Compose source + chunk-builder in-process: the source yields canonical records,
+// we stringify them into NDJSON lines, and processStream consumes them. No
+// subprocess, no stdio piping — errors propagate as exceptions.
 export async function runProtocolOnce(opts: RunProtocolOptions): Promise<RunProtocolResult> {
   async function* lines(): AsyncGenerator<string> {
-    for await (const log of scrape(opts.client, {
-      fromBlock: opts.fromBlock,
-      toBlock: opts.toBlock,
-      events: opts.events,
-      window: opts.window,
-    })) {
-      yield JSON.stringify(normalize(log));
+    for await (const record of opts.source.fetch(opts.fromBlock, opts.toBlock)) {
+      yield JSON.stringify(record);
     }
   }
 
