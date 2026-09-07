@@ -1,6 +1,6 @@
 {
   "name": "@saga-sync/client",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Consumer library + CLI for saga-sync: fetch, verify, and stream published privacy-protocol state",
   "license": "GPL-3.0-only",
   "repository": {
