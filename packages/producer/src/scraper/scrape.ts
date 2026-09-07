@@ -74,13 +74,21 @@ async function getLogsForWindow(
   // halves it and retries — idempotent, so re-fetching the others is fine.
   const perFilter = await Promise.all(
     events.map((filter) => {
-      const topics: Hex[] = [filter.eventTopic, ...(filter.filter ?? [])];
+      // A filter with no eventTopic asks for EVERY log from the address. That is
+      // what a consumer wanting the contract's whole surface needs — and it is
+      // immune to the failure that a hardcoded topic list has: a contract upgrade
+      // that changes an event signature silently stops matching, while the stream
+      // keeps advancing its block range looking healthy.
+      const topics: Hex[] | undefined =
+        filter.eventTopic === undefined
+          ? undefined
+          : [filter.eventTopic, ...(filter.filter ?? [])];
       return client.request({
         method: "eth_getLogs",
         params: [
           {
             address: filter.contractAddress,
-            topics,
+            ...(topics ? { topics } : {}),
             fromBlock: numberToHex(fromBlock),
             toBlock: numberToHex(toBlock),
           },

@@ -888,7 +888,7 @@
         }
       ]
     },
-    "railgun-1-ops-subsquid": {
+    "railgun-1-ops": {
       "chainId": "0x1",
       "fromBlock": "0xe03295",
       "chunkSettings": {
@@ -896,16 +896,14 @@
       },
       "protocol": "railgun",
       "source": {
-        "kind": "subsquid",
-        "endpoint": "https://rail-squid.squids.live/squid-railgun-ethereum-v2/v/v1/graphql",
-        "entity": "railgun-operation"
+        "kind": "calldata",
+        "address": "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9"
       },
       "protocolMetadata": {
         "contract": "RailgunSmartWallet",
-        "source": "subsquid",
-        "sourceEndpoint": "https://rail-squid.squids.live/squid-railgun-ethereum-v2/v/v1/graphql",
+        "source": "rpc-calldata",
         "entity": "railgun-operation",
-        "note": "Per-transaction operations for TXID/POI. Derived from transact() calldata by the RAILGUN Squid; not verifiable against chain logs. See docs/RAILGUN.md."
+        "note": "Per-transaction operations for TXID/POI, derived from transact() calldata. Chain-derived and independently reproducible. See docs/RAILGUN.md."
       }
     },
     "tornado-cash-1-relayer-registry": {

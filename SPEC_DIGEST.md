@@ -231,3 +231,31 @@ TXID/POI.
   deserializers, after the stream had already been published once.
 
 The chunk builder needed no changes — it only ever reads `blockNumber`.
+
+## 9. Calldata-derived operations — NEW 2026-08-26
+
+`railgun-1-ops` derives the operation records from `transact()` calldata rather
+than mirroring the squid, so the stream is chain-derived and SPEC §10's
+reproducibility argument applies to it. Same record shape as the mirror — both go
+through `sources/railgun-operation.ts`, which is what makes them byte-identical.
+
+- **`boundParamsHash`** = `keccak256(abi.encode(boundParams)) % SNARK_SCALAR_FIELD`
+  (contracts/logic/Verifier.sol), for BOTH eras. The V1 struct differs (no
+  minGasPrice, no chainID, uint256-based ciphertext, a trailing `overrideOutput`
+  on Transaction) but the formula is the same; verified against chain data for
+  each.
+- **Position rule:** a call inserting nothing emits no batch event and gets the
+  99999 sentinel; otherwise each operation reports the batch's tree and a running
+  offset that only advances by *inserted* commitments (an unshield's last
+  commitment is a placeholder). An operation inserting 0 inside a call that
+  inserts something still reports the current offset — not the sentinel.
+- **Entry points are open-ended.** Any contract may wrap `transact()`, so the
+  selector allowlist cannot be complete; unknown selectors fall back to
+  `debug_traceTransaction`/`callTracer`. **This adds a tracing-capable RPC as a
+  production dependency.**
+- **One deliberate divergence from chain truth:** in the V1 era the squid reports
+  a shield's batch position for an operation that also transacted. We reproduce it
+  so kohaku's TXID roots keep matching the POI node — see docs/RAILGUN.md §5.3.
+
+`EventFilter.eventTopic` became optional so a source can request every log from an
+address; the config schema still requires a topic for rpc-sourced streams.

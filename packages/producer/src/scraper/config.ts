@@ -39,6 +39,11 @@ const sourceSchema = z
   .discriminatedUnion("kind", [
     z.object({ kind: z.literal("rpc") }),
     z.object({
+      kind: z.literal("calldata"),
+      // The contract whose logs identify the calls to decode.
+      address,
+    }),
+    z.object({
       kind: z.literal("subsquid"),
       endpoint: z.string().url("expected an absolute http(s) URL"),
       // Which entity to mirror. Only "railgun-operation" exists today; naming it
@@ -82,7 +87,11 @@ const targetSchema = z.object({
 
 export type EventFilter = {
   contractAddress: Hex;
-  eventTopic: Hex;
+  // Absent means "every log from this address". The config schema still requires
+  // a topic for an rpc-sourced stream (so a published stream keeps advertising
+  // trackedEventTopics); this is for internal callers such as the calldata source,
+  // which needs the contract's whole log surface to find the calls to decode.
+  eventTopic?: Hex;
   filter?: Hex[];
 };
 
@@ -90,6 +99,7 @@ export type EventFilter = {
 // callers never have to re-apply the "absent means rpc" default.
 export type SourceConfig =
   | { kind: "rpc" }
+  | { kind: "calldata"; address: Hex }
   | { kind: "subsquid"; endpoint: string; entity: string };
 
 export type ScraperTarget = {

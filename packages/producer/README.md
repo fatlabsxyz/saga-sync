@@ -305,6 +305,14 @@ ranges and chunking; a `ScraperSource` decides what to yield.
   same way. **Its tip is clamped to the chain's finalized block**: the index runs
   ~75 blocks behind head, i.e. ahead of finality, and sealed chunks are immutable.
 
+- **`CalldataSource`** — decodes Railgun's per-transaction operations from
+  `transact()` calldata, for data no log carries. Handles both contract eras (the
+  V1 and V2 `Transaction` structs differ) and both known entry points. **Requires a
+  tracing-capable RPC**: any contract may wrap `transact()`, so when the top-level
+  selector is unrecognised it falls back to `debug_traceTransaction` with
+  `callTracer` to find the inner call. Without tracing those transactions fail the
+  run rather than being silently dropped.
+
 Selected per stream by the config's `source` block, which defaults to
 `{"kind":"rpc"}` so configs written before sources existed are unchanged. `events`
 is required for an rpc source and rejected for any other. Adding a source kind is
