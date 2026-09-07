@@ -96,3 +96,28 @@ A config describes *what* to scrape and how to chunk it:
 ```
 
 `chainId`, `fromBlock`, and `events` are required; `chunkSettings.maxSizeBytes` caps the uncompressed size at which the hot head is sealed into an immutable chunk. *Where* chunks are published and *how often* the scraper runs are deployment concerns, not config: all protocols in a config share one store and manifest, so the store target is a per-run CLI choice (a local directory or `gs://bucket/prefix`), and the schedule is external (cron / a cloud scheduler).
+
+# Contributing
+
+## Releasing packages
+
+Versioning and publishing of `@saga-sync/{core,client,producer}` are driven by [Changesets](https://github.com/changesets/changesets). Packages are versioned independently; a bump to `@saga-sync/core` automatically patch-bumps the dependents that consume it.
+
+**When you make a user-facing change**, add a changeset in the same PR:
+
+```bash
+pnpm changeset
+```
+
+This prompts you to select the affected package(s), pick a bump for each (`patch` / `minor` / `major`), and write a one-line summary. Commit the generated `.changeset/*.md` file alongside your code. Add one changeset per logical change — they accumulate until the next release.
+
+**Releasing is automated** by the `release` workflow on pushes to `master`:
+
+1. When changesets are pending, the workflow opens (or updates) a **"chore(release): version packages"** PR that applies all pending bumps and updates each package's `CHANGELOG.md`.
+2. Merging that PR triggers the workflow again, which builds and publishes only the packages whose version isn't already on npm, and pushes a git tag per released package (e.g. `@saga-sync/core@0.2.0`).
+
+Publishing uses npm Trusted Publishing (OIDC) — no tokens required. To preview tarball contents without releasing, run the `release` workflow manually (`workflow_dispatch`) with the dry-run option, or locally:
+
+```bash
+pnpm -r publish --dry-run --access public --no-git-checks
+```
