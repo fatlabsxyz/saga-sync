@@ -21,7 +21,7 @@ Cloud Scheduler (daily cron)
 | `Dockerfile` | Multi-stage build → slim runtime image (`pnpm install --prod` keeps the optional GCS SDK). |
 | `docker/entrypoint.sh` | Fetches config from GCS, then runs the orchestrator → `gs://BUCKET`. No `--lock-dir` (single-execution scheduling is the guard). |
 | `docker/fetch-config.mjs` | Downloads `CONFIG_URI` to `/tmp/config.json` via the same ADC the orchestrator uses. |
-| `publish-config.json` | The per-pool streams across the three protocols (privacy-pools, tornado, railgun) — 34 today. Uploaded to the bucket; **not** baked into the image, so the stream set changes without a rebuild. |
+| `publish-config.json` | The streams across the three protocols (privacy-pools, tornado, railgun) — 37 today. Uploaded to the bucket; **not** baked into the image, so the stream set changes without a rebuild. |
 | `deploy/cloud-run-job.sh` | Idempotent provisioning: Artifact Registry, image build, service account + IAM, Cloud Run Job, Cloud Scheduler. |
 
 ### Parallelism
