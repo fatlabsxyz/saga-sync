@@ -1,4 +1,5 @@
-import type { CanonicalEntity, CanonicalRecord, Hex } from "@saga-sync/core";
+import type { CanonicalEntity, CanonicalRecord } from "@saga-sync/core";
+import { railgunOperation, RAILGUN_OPERATION_ENTITY } from "./railgun-operation.js";
 import type { ScraperSource } from "./types.js";
 
 // Mirror a RAILGUN Squid GraphQL index.
@@ -38,45 +39,6 @@ export function decodeSquidId(id: string): SquidId {
   return { blockNumber: word(0), transactionIndex: word(1), opIndex: word(2) };
 }
 
-// Minimal 0x-hex, lowercase — the same quantity encoding the rest of the format
-// uses. The squid returns BigInt fields as DECIMAL strings and Bytes as hex, so
-// everything funnels through here; a non-deterministic conversion would make
-// chunk digests irreproducible.
-function quantity(value: string | number | bigint, field: string): Hex {
-  let n: bigint;
-  try {
-    n = BigInt(value);
-  } catch {
-    throw new Error(`subsquid: ${field} is not an integer: ${JSON.stringify(value)}`);
-  }
-  if (n < 0n) throw new Error(`subsquid: ${field} is negative: ${value}`);
-  return `0x${n.toString(16)}` as Hex;
-}
-
-// Nullifiers, commitments and boundParamsHash are `bytes32` in the contract ABI,
-// so they are emitted as a full 32-byte word — always 0x + 64 hex digits.
-//
-// The squid does NOT do this: it strips leading zero bytes, so the same value can
-// come back 30, 31 or 32 bytes wide (measured over the full history: 2,879
-// boundParamsHash at 31 bytes, 14 at 30, 22 nullifiers and 42 commitments short).
-// Passing that through would make our bytes depend on an indexer's formatting —
-// a calldata-derived source would naturally emit the padded form and the two
-// would disagree, breaking the point of a source-independent record. It would
-// also render the same nullifier differently here than when decoded from a log.
-//
-// Re-rendering from the integer value is lossless for a fixed-width type and
-// makes the output depend only on the value.
-function bytes32(value: string, field: string): Hex {
-  if (typeof value !== "string" || !/^0x[0-9a-fA-F]*$/.test(value)) {
-    throw new Error(`subsquid: ${field} is not 0x-hex: ${JSON.stringify(value)}`);
-  }
-  const hex = BigInt(value).toString(16);
-  if (hex.length > 64) {
-    throw new Error(`subsquid: ${field} exceeds 32 bytes: ${JSON.stringify(value)}`);
-  }
-  return `0x${hex.padStart(64, "0")}` as Hex;
-}
-
 type RawOperation = {
   id: string;
   blockNumber: string;
@@ -112,29 +74,32 @@ const HEIGHT_QUERY = `query Height { squidStatus { height } }`;
 // and the chunk digest is taken over those exact bytes. Do not reorder.
 export function toCanonicalOperation(raw: RawOperation, entity: string): CanonicalEntity {
   const id = decodeSquidId(raw.id);
-  const fromBlock = quantity(raw.blockNumber, "blockNumber");
-  if (BigInt(fromBlock) !== id.blockNumber) {
+  if (BigInt(raw.blockNumber) !== id.blockNumber) {
     // The id encodes the block; if the column disagrees, one of our assumptions
     // about this index is wrong and silently trusting either would be worse.
     throw new Error(
       `subsquid: id block ${id.blockNumber} disagrees with blockNumber ${raw.blockNumber}`,
     );
   }
-  return {
-    entity,
-    blockNumber: fromBlock,
-    transactionIndex: quantity(id.transactionIndex, "transactionIndex"),
-    opIndex: quantity(id.opIndex, "opIndex"),
-    nullifiers: raw.nullifiers.map((n, i) => bytes32(n, `nullifiers[${i}]`)),
-    commitments: raw.commitments.map((c, i) => bytes32(c, `commitments[${i}]`)),
-    boundParamsHash: bytes32(raw.boundParamsHash, "boundParamsHash"),
-    utxoTreeIn: quantity(raw.utxoTreeIn, "utxoTreeIn"),
-    utxoTreeOut: quantity(raw.utxoTreeOut, "utxoTreeOut"),
-    utxoBatchStartPositionOut: quantity(
-      raw.utxoBatchStartPositionOut,
-      "utxoBatchStartPositionOut",
-    ),
-  };
+  if (entity !== RAILGUN_OPERATION_ENTITY) {
+    throw new Error(`subsquid: unsupported entity "${entity}"`);
+  }
+  // Shape and encoding come from railgun-operation.ts, shared with the
+  // calldata source so the two are byte-identical by construction.
+  return railgunOperation(
+    {
+      blockNumber: raw.blockNumber,
+      transactionIndex: id.transactionIndex,
+      opIndex: id.opIndex,
+      nullifiers: raw.nullifiers,
+      commitments: raw.commitments,
+      boundParamsHash: raw.boundParamsHash,
+      utxoTreeIn: raw.utxoTreeIn,
+      utxoTreeOut: raw.utxoTreeOut,
+      utxoBatchStartPositionOut: raw.utxoBatchStartPositionOut,
+    },
+    "subsquid",
+  );
 }
 
 export type SubsquidSourceOptions = {

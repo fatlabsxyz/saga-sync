@@ -192,9 +192,9 @@ async function readOurEvents({ manifest, protocol, from, to }) {
     }
   }
   console.log(
-    `stream:  ${selected.length} chunk(s) verified, ${events.length} log(s) in [${from}, ${to})`,
+    `stream:  ${selected.length} chunk(s) verified, ${events.length} record(s) in [${from}, ${to})`,
   );
-  return events;
+  return { records: events, manifest: index };
 }
 
 // A commitment's identity: global leaf position + the discriminant a consumer can
@@ -490,7 +490,7 @@ async function main() {
   // The ABI table only describes log streams; an operations stream has no topics.
   if (!opts.skipConfigCheck) checkConfig(opts.config, opts.protocol);
 
-  const records = await readOurEvents(opts);
+  const { records, manifest } = await readOurEvents(opts);
 
   // An operations stream carries entity records, a log stream carries logs. They
   // never mix (the client enforces that), so the first record decides.
@@ -500,10 +500,18 @@ async function main() {
     console.log("\ncomparison:");
     const ok = diff("operations", ours, theirs);
     console.log(ok ? "\nPASS — operations match the squid" : "\nFAIL — see differences above");
+    // What a match MEANS depends on where the records came from, so read it off the
+    // manifest rather than assuming. A mirror agreeing with its own upstream is a
+    // round-trip; a calldata derivation agreeing with it is evidence.
+    const provenance = manifest.protocolMetadata(opts.protocol)?.source;
     console.log(
-      "\nNote: this stream MIRRORS the squid, so a match proves our normalization and\n" +
-        "chunking are lossless — not that the underlying data is right. Only a second,\n" +
-        "independent derivation (Phase 3, from transact() calldata) can prove that.",
+      provenance === "subsquid"
+        ? "\nNote: this stream MIRRORS the squid, so a match proves our normalization and\n" +
+            "chunking are lossless — not that the underlying data is right. Only an\n" +
+            "independent derivation (from transact() calldata) can prove that."
+        : "\nNote: this stream is derived independently of the squid" +
+            (provenance ? ` (source: ${provenance})` : "") +
+            ",\nso a match is real evidence — two derivations of the same calldata agreeing.",
     );
     process.exit(ok ? 0 : 1);
   }
