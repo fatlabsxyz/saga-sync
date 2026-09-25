@@ -378,6 +378,35 @@
         }
       ]
     },
+    "privacy-pools-1-entrypoint": {
+      "chainId": "0x1",
+      "fromBlock": "0x15209f1",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "kind": "entrypoint"
+      },
+      "events": [
+        {
+          "contractAddress": "0x6818809eefce719e480a7526d76bd3e561526b46",
+          "eventTopic": "0xf5681f9d0db1b911ac18ee83d515a1cf1051853a9eae418316a2fdf7dea427c5"
+        },
+        {
+          "contractAddress": "0x6818809eefce719e480a7526d76bd3e561526b46",
+          "eventTopic": "0xf43641373d5bc20fddfffcd0496fd39bde41e1aa0ce326d8899b7e658261ac02"
+        },
+        {
+          "contractAddress": "0x6818809eefce719e480a7526d76bd3e561526b46",
+          "eventTopic": "0xf9db649aad81ad9a4497a5f606f7aeff83c48f87b5d86c78efc5700ca8098f77"
+        },
+        {
+          "contractAddress": "0x6818809eefce719e480a7526d76bd3e561526b46",
+          "eventTopic": "0x553cc33d23d2e9040c6bf11923a373315dc4c6ecb52c37451cbfc0b5903e2ec6"
+        }
+      ]
+    },
     "tornado-cash-1-eth-0.1": {
       "chainId": "0x1",
       "fromBlock": "0x8b1d26",

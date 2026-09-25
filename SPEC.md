@@ -174,6 +174,12 @@ Two constraints:
 - **A stream carries one kind.** Logs and entity records MUST NOT be mixed within a stream. A log can be re-verified against an archive node; an entity record is a derivation and cannot. Interleaving them would let derived data shelter among independently checkable data.
 - **Provenance MUST be declared.** A stream of entity records SHOULD record how they were produced in `protocolMetadata` (e.g. `source: "subsquid"` with the endpoint). §10's reproducibility argument rests on chain immutability; records mirrored from a third-party index are reproducible only against **that index**, which can be reprocessed. Consumers need to be able to tell the difference.
 
+### 3.5 Authenticity vs. Completeness
+
+Every log stream is **authentic**: each record can be re-checked against an archive node, and §10's reproducibility argument applies. That says nothing about **completeness**. A publisher that omits a record produces a chunk whose digest and ordering still verify; the manifest attests to what was published, not to what the chain emitted.
+
+Completeness is checkable only when the application can cross-check the stream against on-chain state. A privacy pool's commitment events can be: the merkle tree rebuilt from them must match the contract's root, so a missing leaf is detected. Many streams have no such anchor — registries, administrative events, off-chain-rooted data such as an ASP's `RootUpdated`. They are published under the same rules, but a consumer SHOULD treat an absent record there as "not published", not "did not happen", and spot-check against contract state (e.g. the latest root) where the protocol allows.
+
 ## 4. Naming Conventions
 
 ### 4.1 Protocol Instance Key
