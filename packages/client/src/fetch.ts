@@ -2,6 +2,7 @@ import type { CanonicalRecord } from "@saga-sync/core";
 import type { Store } from "@saga-sync/core";
 import type { ChunkMeta } from "@saga-sync/core";
 import { verifyDigest, verifyChunkEvents } from "./verify.js";
+import type { ChunkExpectations } from "./verify.js";
 
 // Thrown when a chunk file referenced by the manifest is absent from the
 // store. Distinct from DigestMismatchError so callers can tell "missing"
@@ -29,10 +30,12 @@ const utf8 = new TextDecoder();
 // verify canonical form. Digest verification happens before parsing so a tampered
 // chunk never reaches the caller; the canonical-form check (range + ordering, SPEC
 // §3.3) then catches a correctly-digested chunk the producer built non-canonically.
+// `expect` carries the stream's declared record shape (see verifyChunkEvents).
 // Async because gzip decompression is a streaming Web API.
 export async function decodeAndVerify(
   compressed: Uint8Array,
   meta: ChunkMeta,
+  expect?: ChunkExpectations,
 ): Promise<CanonicalRecord[]> {
   // Defensive: a zero-byte file is not produced by the pipeline (an empty
   // events list still gzips to ~20 bytes), but if encountered, hand empty
@@ -45,15 +48,19 @@ export async function decodeAndVerify(
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as CanonicalRecord);
-  verifyChunkEvents(meta, events);
+  verifyChunkEvents(meta, events, expect);
   return events;
 }
 
 // Fetch a chunk from `store`, verify, return its events. Throws
 // ChunkNotFoundError if the store has no such object, DigestMismatchError if
 // the bytes do not match the manifest.
-export async function fetchChunkFrom(store: Store, meta: ChunkMeta): Promise<CanonicalRecord[]> {
+export async function fetchChunkFrom(
+  store: Store,
+  meta: ChunkMeta,
+  expect?: ChunkExpectations,
+): Promise<CanonicalRecord[]> {
   const compressed = await store.get(meta.file);
   if (!compressed) throw new ChunkNotFoundError(meta);
-  return decodeAndVerify(compressed, meta);
+  return decodeAndVerify(compressed, meta, expect);
 }

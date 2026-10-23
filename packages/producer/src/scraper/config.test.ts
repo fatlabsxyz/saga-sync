@@ -238,6 +238,27 @@ describe("loadAllProtocols", () => {
       expect(() => loadConfig(write({ p: bad }), "p")).toThrow(/is invalid/);
     });
 
+    it("carries extraLogFields deduped, and omits an empty set", () => {
+      const t = loadConfig(
+        write({ p: { ...rpcTarget, extraLogFields: ["transactionHash", "transactionHash"] } }),
+        "p",
+      );
+      expect(t.extraLogFields).toEqual(["transactionHash"]);
+      expect(loadConfig(write({ p: { ...rpcTarget, extraLogFields: [] } }), "p").extraLogFields)
+        .toBeUndefined();
+      expect(loadConfig(write({ p: rpcTarget }), "p").extraLogFields).toBeUndefined();
+    });
+
+    it("rejects an unknown extra log field", () => {
+      const bad = { ...rpcTarget, extraLogFields: ["blockHash"] };
+      expect(() => loadConfig(write({ p: bad }), "p")).toThrow(/is invalid/);
+    });
+
+    it("rejects extraLogFields on a non-rpc source", () => {
+      const bad = { ...squidTarget, extraLogFields: ["transactionHash"] };
+      expect(() => loadConfig(write({ p: bad }), "p")).toThrow(/only applies to log records/);
+    });
+
     it("rejects a subsquid source without a usable endpoint", () => {
       const bad = { ...squidTarget, source: { ...squidTarget.source, endpoint: "not-a-url" } };
       expect(() => loadConfig(write({ p: bad }), "p")).toThrow(/absolute http\(s\) URL/);

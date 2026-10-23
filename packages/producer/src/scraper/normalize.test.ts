@@ -39,6 +39,36 @@ describe("normalize", () => {
     expect("blockHash" in e).toBe(false);
   });
 
+  it("appends a lowercased transactionHash after logIndex when requested", () => {
+    const e = normalize(baseLog(), { extraLogFields: ["transactionHash"] });
+    expect(Object.keys(e)).toEqual([
+      "contractAddress",
+      "eventTopic",
+      "topics",
+      "data",
+      "blockNumber",
+      "logIndex",
+      "transactionHash",
+    ]);
+    expect(e.transactionHash).toBe(
+      "0xddd0000000000000000000000000000000000000000000000000000000000004",
+    );
+    expect("blockHash" in e).toBe(false);
+  });
+
+  it("serializes exactly as before when no extra fields are requested", () => {
+    expect(JSON.stringify(normalize(baseLog(), { extraLogFields: [] }))).toBe(
+      JSON.stringify(normalize(baseLog())),
+    );
+  });
+
+  it("throws when a requested transactionHash is missing from the log", () => {
+    const log = baseLog({ transactionHash: null } as unknown as Partial<RpcLog>);
+    expect(() => normalize(log, { extraLogFields: ["transactionHash"] })).toThrow(
+      /missing transactionHash/,
+    );
+  });
+
   it("keeps blockNumber and logIndex as 0x hex", () => {
     const e = normalize(baseLog());
     expect(e.blockNumber).toBe("0x1a2b");

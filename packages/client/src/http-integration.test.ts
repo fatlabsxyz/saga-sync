@@ -101,3 +101,54 @@ describe("client over real HTTP", () => {
     }
   });
 });
+
+// The v2 publication: a stream that opted in to transactionHash, published under
+// a path prefix of the same origin — exactly how /v2 sits beside the v1 root
+// behind one CDN.
+describe("client over real HTTP — v2 prefix with transactionHash", () => {
+  let dir: string;
+  let server: Server;
+  let baseUrl: string;
+  const PP = "privacy-pools-1-eth";
+  const hashed = (block: bigint): CanonicalEvent => ({
+    ...event(block),
+    transactionHash: `0x${block.toString(16).padStart(64, "0")}`,
+  });
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "client-http-v2-"));
+    const store = new DiskStore(join(dir, "v2"));
+    const archive = new ChunkArchive(store);
+    const manifest = await Manifest.load(store);
+    await manifest.setProtocolMeta(PP, { extraLogFields: ["transactionHash"] });
+    await manifest.appendChunk(PP, await archive.seal(PP, [hashed(1n), hashed(2n)], { from: 1n, to: 3n }));
+    await manifest.setHotHead(PP, await archive.writeHotHead(PP, [hashed(3n)], { from: 3n, to: 5n }));
+    await manifest.flush();
+    ({ server, baseUrl } = await serve(dir));
+  });
+
+  afterEach(() => {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("streams verified events with their transactionHash", async () => {
+    const client = new Client({ source: new HttpStore(`${baseUrl}v2/`) });
+    const out: CanonicalEvent[] = [];
+    for await (const e of client.streamEvents(PP)) out.push(e as CanonicalEvent);
+    expect(out.map((e) => e.blockNumber)).toEqual(["0x1", "0x2", "0x3"]);
+    expect(out.every((e) => /^0x[0-9a-f]{64}$/.test(e.transactionHash ?? ""))).toBe(true);
+  });
+
+  it("rejects a stream whose records do not match its declaration", async () => {
+    // Same chunks, but a manifest that does not declare the field.
+    const store = new DiskStore(join(dir, "v2"));
+    const raw = JSON.parse(new TextDecoder().decode((await store.get("index.json"))!));
+    delete raw.availableProtocols[PP].extraLogFields;
+    await store.put("index.json", new TextEncoder().encode(JSON.stringify(raw)));
+    const client = new Client({ source: new HttpStore(`${baseUrl}v2/`) });
+    await expect(async () => {
+      for await (const _ of client.streamEvents(PP)) void _;
+    }).rejects.toThrow(/has fields/);
+  });
+});

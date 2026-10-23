@@ -29,6 +29,11 @@ Comparison of the newly-added `SPEC.md` (Draft v0.1.0) against the current code
   rationale; re-digests every chunk (fine in dev). `transactionHash` was the only
   field not recoverable offline (same-tx grouping) — accepted, since no targeted
   protocol's reconstruction needs tx-atomicity.
+  **Partly reversed, opt-in (2026-10-23):** a stream may now declare
+  `extraLogFields: ["transactionHash"]` (config → manifest entry) and carry the
+  hash on every record, appended after `logIndex`. Default output is unchanged
+  byte-for-byte. Used by the Privacy Pools streams published under `/v2` (the
+  bucket root stays the hash-less v1). SPEC §3.2/§3.3 amended to match.
 - **No in-chunk envelope → KEEP.** There's no per-chunk `fromBlock`/`toBlock` to
   cross-check, but the client now validates events against the **manifest's**
   range instead (`verifyChunkEvents`), satisfying §5.5's intent.

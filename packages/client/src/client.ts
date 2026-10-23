@@ -5,6 +5,7 @@ import type { Store } from "@saga-sync/core";
 import type { ChunkMeta } from "@saga-sync/core";
 import { Manifest } from "@saga-sync/core";
 import { decodeAndVerify, fetchChunkFrom, ChunkNotFoundError } from "./fetch.js";
+import type { ChunkExpectations } from "./verify.js";
 import { loadManifest, selectSealedChunks, selectHotHead } from "./manifest.js";
 
 export type ClientOptions = {
@@ -87,9 +88,16 @@ export class Client {
 
   // Layer 2: fetch one chunk by its manifest entry. Goes through the cache
   // path (for sealed chunks) so callers get the same efficiency as
-  // streamEvents.
-  fetchChunk(meta: ChunkMeta, opts: { hot?: boolean } = {}): Promise<CanonicalRecord[]> {
-    return opts.hot ? fetchChunkFrom(this.source, meta) : this.fetchSealed(meta);
+  // streamEvents. A bare ChunkMeta does not say which stream it belongs to, so
+  // the record-shape check runs only when `expect` is passed (streamEvents
+  // always passes it).
+  fetchChunk(
+    meta: ChunkMeta,
+    opts: { hot?: boolean; expect?: ChunkExpectations } = {},
+  ): Promise<CanonicalRecord[]> {
+    return opts.hot
+      ? fetchChunkFrom(this.source, meta, opts.expect)
+      : this.fetchSealed(meta, opts.expect);
   }
 
   // Layer 1.5: discover the protocol streams a manifest publishes. Streams are
@@ -148,13 +156,16 @@ export class Client {
       (e) => e.eventTopic,
     );
     const keep = (e: CanonicalRecord): boolean => keepAddress(e) && keepTopic(e);
+    const expect: ChunkExpectations = {
+      extraLogFields: manifest.extraLogFields(protocolId) ?? [],
+    };
 
-    for await (const events of this.fetchSealedOrdered(sealed)) {
+    for await (const events of this.fetchSealedOrdered(sealed, expect)) {
       for (const event of events) if (keep(event)) yield event;
     }
 
     if (hot) {
-      const events = await fetchChunkFrom(this.source, hot);
+      const events = await fetchChunkFrom(this.source, hot, expect);
       for (const event of events) if (keep(event)) yield event;
     }
   }
@@ -162,14 +173,17 @@ export class Client {
   // Cache-aware sealed fetch: check cache → on miss, fetch from source, verify,
   // populate cache. Verification runs on both paths so every byte the
   // application sees was just verified.
-  private async fetchSealed(meta: ChunkMeta): Promise<CanonicalRecord[]> {
+  private async fetchSealed(
+    meta: ChunkMeta,
+    expect?: ChunkExpectations,
+  ): Promise<CanonicalRecord[]> {
     if (this.cache) {
       const cached = await this.cache.get(meta.file);
-      if (cached) return await decodeAndVerify(cached, meta);
+      if (cached) return await decodeAndVerify(cached, meta, expect);
     }
     const compressed = await this.source.get(meta.file);
     if (!compressed) throw new ChunkNotFoundError(meta);
-    const events = await decodeAndVerify(compressed, meta);
+    const events = await decodeAndVerify(compressed, meta, expect);
     if (this.cache) await this.cache.put(meta.file, compressed);
     return events;
   }
@@ -181,15 +195,16 @@ export class Client {
   // bounded by `concurrency`.
   private async *fetchSealedOrdered(
     metas: ChunkMeta[],
+    expect: ChunkExpectations,
   ): AsyncGenerator<CanonicalRecord[], void, void> {
     const queue: Promise<CanonicalRecord[]>[] = [];
     let next = 0;
     while (next < metas.length && queue.length < this.concurrency) {
-      queue.push(this.fetchSealed(metas[next++]!));
+      queue.push(this.fetchSealed(metas[next++]!, expect));
     }
     while (queue.length > 0) {
       const events = await queue.shift()!;
-      if (next < metas.length) queue.push(this.fetchSealed(metas[next++]!));
+      if (next < metas.length) queue.push(this.fetchSealed(metas[next++]!, expect));
       yield events;
     }
   }

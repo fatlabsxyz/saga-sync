@@ -135,6 +135,7 @@ export async function cmdInfo(
         chainId: manifest.chainId(id) ?? null,
         trackedAddresses: manifest.trackedAddresses(id) ?? [],
         trackedEventTopics: manifest.trackedEventTopics(id) ?? [],
+        extraLogFields: manifest.extraLogFields(id) ?? [],
         manifestVersion: manifest.version(),
         updatedAt: manifest.updatedAt() ?? null,
         fromBlock: hexOrNull(first),
@@ -153,12 +154,14 @@ export async function cmdInfo(
   const meta = manifest.protocolMetadata(id);
   const tracked = manifest.trackedAddresses(id) ?? [];
   const topics = manifest.trackedEventTopics(id) ?? [];
+  const extra = manifest.extraLogFields(id) ?? [];
   return [
     `protocol:        ${id}`,
     `type:            ${manifest.protocolName(id) ?? "-"}${manifest.chainId(id) ? ` (chain ${manifest.chainId(id)})` : ""}`,
     ...(meta && Object.keys(meta).length ? [`metadata:        ${JSON.stringify(meta)}`] : []),
     ...(tracked.length ? [`tracked addrs:   ${tracked.join(", ")}`] : []),
     ...(topics.length ? [`tracked topics:  ${topics.join(", ")}`] : []),
+    ...(extra.length ? [`extra fields:    ${extra.join(", ")}`] : []),
     `manifest:        v${manifest.version()}${manifest.updatedAt() ? `, updated ${manifest.updatedAt()}` : ""}`,
     `block range:     ${hexOrNull(first) ?? "-"} → ${hexOrNull(last) ?? "-"}`,
     `sealed chunks:   ${sealed.length}`,

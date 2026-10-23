@@ -1,4 +1,5 @@
 import type { Hex } from "./hex.js";
+import type { ExtraLogField } from "./events.js";
 import type { Store } from "./store.js";
 import type { ManifestSigner, ManifestKeySigner } from "./signing.js";
 import { encodeSignatureEnvelope } from "./signing.js";
@@ -30,6 +31,11 @@ export type ProtocolEntry = {
   chainId?: Hex;
   trackedAddresses?: Hex[];
   trackedEventTopics?: Hex[];
+  // Optional log fields every record of this stream carries beyond the base six
+  // (e.g. `transactionHash`). Absent means none. Write-once like
+  // protocolMetadata: it describes the shape of chunks already published, so the
+  // producer refuses to extend a stream whose declaration differs from config.
+  extraLogFields?: ExtraLogField[];
   chunks: ChunkMeta[];
   hotHead?: ChunkMeta;
 };
@@ -55,6 +61,7 @@ export type ProtocolMeta = {
   chainId?: Hex;
   trackedAddresses?: Hex[];
   trackedEventTopics?: Hex[];
+  extraLogFields?: ExtraLogField[];
 };
 
 const MANIFEST_KEY = "index.json";
@@ -101,6 +108,7 @@ function orderedEntry(e: ProtocolEntry): Record<string, unknown> {
     ...(e.chainId !== undefined ? { chainId: e.chainId } : {}),
     ...(e.trackedAddresses !== undefined ? { trackedAddresses: e.trackedAddresses } : {}),
     ...(e.trackedEventTopics !== undefined ? { trackedEventTopics: e.trackedEventTopics } : {}),
+    ...(e.extraLogFields !== undefined ? { extraLogFields: e.extraLogFields } : {}),
     chunks: e.chunks,
     ...(e.hotHead !== undefined ? { hotHead: e.hotHead } : {}),
   };
@@ -197,6 +205,10 @@ export class Manifest {
 
   chainId(protocolId: string): Hex | undefined {
     return this.data.availableProtocols[protocolId]?.chainId;
+  }
+
+  extraLogFields(protocolId: string): ExtraLogField[] | undefined {
+    return this.data.availableProtocols[protocolId]?.extraLogFields;
   }
 
   // Highest block any artifact (sealed chunk or hot head) covers for a protocol.
@@ -324,6 +336,12 @@ export class Manifest {
     }
     if (e.trackedEventTopics === undefined && meta.trackedEventTopics !== undefined) {
       e.trackedEventTopics = meta.trackedEventTopics;
+      changed = true;
+    }
+    // An empty set is left unset, so streams without extra fields serialize
+    // exactly as they did before the field existed.
+    if (e.extraLogFields === undefined && meta.extraLogFields?.length) {
+      e.extraLogFields = meta.extraLogFields;
       changed = true;
     }
     return changed ? this.touch() : Promise.resolve();

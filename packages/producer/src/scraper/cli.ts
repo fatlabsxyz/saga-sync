@@ -167,7 +167,8 @@ async function main(): Promise<void> {
     events: eventFilters,
     window: args.window,
   })) {
-    process.stdout.write(JSON.stringify(normalize(log)) + "\n");
+    const event = normalize(log, { extraLogFields: config.extraLogFields });
+    process.stdout.write(JSON.stringify(event) + "\n");
     count += 1;
   }
 

@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireLock, runPool } from "./cli.js";
+import { Manifest } from "@saga-sync/core";
+import { DiskStore } from "@saga-sync/core/node";
+import { acquireLock, runPool, extraLogFieldsMismatch } from "./cli.js";
+import type { ScraperTarget } from "../scraper/config.js";
 
 // lastCoveredBlock moved onto the Manifest class — its cases now live in
 // src/chunk-builder/manifest.test.ts.
@@ -90,5 +93,54 @@ describe("runPool", () => {
       seen.push(n);
     });
     expect(seen.sort((a, b) => a - b)).toEqual([1, 2]);
+  });
+});
+
+describe("extraLogFieldsMismatch", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "orch-extra-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const target = (extraLogFields?: ScraperTarget["extraLogFields"]): ScraperTarget => ({
+    chainId: "0x1",
+    fromBlock: "0x1",
+    source: { kind: "rpc" },
+    ...(extraLogFields ? { extraLogFields } : {}),
+  });
+  const chunk = {
+    fromBlock: "0x1" as const,
+    toBlock: "0x5" as const,
+    file: "p.gz",
+    size: "0x0" as const,
+    digest: { type: "sha256" as const, data: "0x0" as const },
+  };
+
+  it("allows any declaration on a stream with nothing published", async () => {
+    const m = await Manifest.load(new DiskStore(dir));
+    expect(extraLogFieldsMismatch(m, "p", target(["transactionHash"]))).toBeNull();
+  });
+
+  it("allows extending a stream published with the same set", async () => {
+    const m = await Manifest.load(new DiskStore(dir));
+    await m.setProtocolMeta("p", { extraLogFields: ["transactionHash"] });
+    await m.appendChunk("p", chunk);
+    expect(extraLogFieldsMismatch(m, "p", target(["transactionHash"]))).toBeNull();
+  });
+
+  it("refuses to add a field to an already-published stream", async () => {
+    const m = await Manifest.load(new DiskStore(dir));
+    await m.appendChunk("p", chunk);
+    expect(extraLogFieldsMismatch(m, "p", target(["transactionHash"]))).toMatch(
+      /published with \[none\]/,
+    );
+  });
+
+  it("refuses to drop a field from an already-published stream", async () => {
+    const m = await Manifest.load(new DiskStore(dir));
+    await m.setProtocolMeta("p", { extraLogFields: ["transactionHash"] });
+    await m.appendChunk("p", chunk);
+    expect(extraLogFieldsMismatch(m, "p", target())).toMatch(/asks for extraLogFields \[none\]/);
   });
 });

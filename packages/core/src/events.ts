@@ -18,10 +18,13 @@ import type { Hex } from "./hex.js";
 // field because the chunk builder groups by it; the full `topics` array is also
 // kept so each event is self-describing (indexed args live in topics[1..]).
 //
-// `transactionHash`/`blockHash` are intentionally dropped: they are incompressible
+// `transactionHash`/`blockHash` are dropped by default: they are incompressible
 // bloat and unnecessary for state reconstruction. Settled chunks only contain
 // finalized events (reorg-safe by construction), so block-hash verification adds
 // nothing; protocol-specific validation provides any integrity beyond the digest.
+// A stream MAY opt back in to `transactionHash` (see EXTRA_LOG_FIELDS) for
+// consumers that need to tie an event to its transaction; it is then present on
+// every record of that stream, serialized after `logIndex`.
 //
 // Lives in core because both sides depend on it: the producer writes it, the
 // client reconstructs it. The producer's `normalize()` (RpcLog -> CanonicalEvent)
@@ -33,7 +36,30 @@ export type CanonicalEvent = {
   data: Hex;
   blockNumber: Hex;
   logIndex: Hex;
+  transactionHash?: Hex;
 };
+
+// The six fields every log record carries, in serialization order (SPEC §3.3).
+export const BASE_LOG_FIELDS = [
+  "contractAddress",
+  "eventTopic",
+  "topics",
+  "data",
+  "blockNumber",
+  "logIndex",
+] as const;
+
+// Optional log fields a stream can opt in to, in the order they are serialized
+// after the base six. A stream declares its set in the manifest
+// (`extraLogFields`); every record of that stream then carries exactly those.
+export const EXTRA_LOG_FIELDS = ["transactionHash"] as const;
+export type ExtraLogField = (typeof EXTRA_LOG_FIELDS)[number];
+
+// Canonicalize a declared set: dedupe and put it in serialization order, so
+// `["transactionHash"]` written any which way describes the same records.
+export function canonicalExtraLogFields(fields: readonly ExtraLogField[]): ExtraLogField[] {
+  return EXTRA_LOG_FIELDS.filter((f) => fields.includes(f));
+}
 
 // An indexer-derived record. `entity` names the record kind and is the field that
 // distinguishes it from a log on the wire.

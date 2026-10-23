@@ -48,6 +48,30 @@
         }
       ]
     },
+    "tornado-cash-11155111-eth-10": {
+      "chainId": "0xaa36a7",
+      "fromBlock": "0x555d22",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "10000000000000000000",
+        "asset": "ETH",
+        "decimals": 18,
+        "isERC20": false
+      },
+      "events": [
+        {
+          "contractAddress": "0x8d10d506d29fc62abb8a290b99f66db27fc43585",
+          "eventTopic": "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196"
+        },
+        {
+          "contractAddress": "0x8d10d506d29fc62abb8a290b99f66db27fc43585",
+          "eventTopic": "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931"
+        }
+      ]
+    },
     "tornado-cash-11155111-dai-100": {
       "chainId": "0xaa36a7",
       "fromBlock": "0x555d26",
@@ -120,6 +144,126 @@
         {
           "contractAddress": "0xd6663593e71e4916ecb6f6606e1a6fbfa1634ffa",
           "eventTopic": "0x404663163d528ec45288abc4389b81bd96fabf858ff57577ebd4ee7f15d7b0a6"
+        }
+      ]
+    },
+    "tornado-cash-11155111-eth-0.01": {
+      "chainId": "0xaa36a7",
+      "fromBlock": "0xb65415",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "10000000000000000",
+        "asset": "ETH",
+        "decimals": 18,
+        "isERC20": false
+      },
+      "events": [
+        {
+          "contractAddress": "0x0e999c5285141ccb6dfae68a0921f37abd3e6a87",
+          "eventTopic": "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196"
+        },
+        {
+          "contractAddress": "0x0e999c5285141ccb6dfae68a0921f37abd3e6a87",
+          "eventTopic": "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931"
+        }
+      ]
+    },
+    "tornado-cash-11155111-eth-0.03": {
+      "chainId": "0xaa36a7",
+      "fromBlock": "0xb65416",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "30000000000000000",
+        "asset": "ETH",
+        "decimals": 18,
+        "isERC20": false
+      },
+      "events": [
+        {
+          "contractAddress": "0x9480be3964642efcd6cebdb3570db8dc0f788908",
+          "eventTopic": "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196"
+        },
+        {
+          "contractAddress": "0x9480be3964642efcd6cebdb3570db8dc0f788908",
+          "eventTopic": "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931"
+        }
+      ]
+    },
+    "tornado-cash-11155111-eth-0.3": {
+      "chainId": "0xaa36a7",
+      "fromBlock": "0xb65418",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "300000000000000000",
+        "asset": "ETH",
+        "decimals": 18,
+        "isERC20": false
+      },
+      "events": [
+        {
+          "contractAddress": "0x83091415b54d764e215153ff54b36ccd44122e6e",
+          "eventTopic": "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196"
+        },
+        {
+          "contractAddress": "0x83091415b54d764e215153ff54b36ccd44122e6e",
+          "eventTopic": "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931"
+        }
+      ]
+    },
+    "tornado-cash-11155111-eth-3": {
+      "chainId": "0xaa36a7",
+      "fromBlock": "0xb65419",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "3000000000000000000",
+        "asset": "ETH",
+        "decimals": 18,
+        "isERC20": false
+      },
+      "events": [
+        {
+          "contractAddress": "0x7ee90edc51c3739af3ee277e09ade3f3d6bad4af",
+          "eventTopic": "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196"
+        },
+        {
+          "contractAddress": "0x7ee90edc51c3739af3ee277e09ade3f3d6bad4af",
+          "eventTopic": "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931"
+        }
+      ]
+    },
+    "tornado-cash-11155111-eth-30": {
+      "chainId": "0xaa36a7",
+      "fromBlock": "0xb6541a",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "tornado-cash",
+      "protocolMetadata": {
+        "denomination": "30000000000000000000",
+        "asset": "ETH",
+        "decimals": 18,
+        "isERC20": false
+      },
+      "events": [
+        {
+          "contractAddress": "0x3d1c943dfb2c8d9905b0da0afd18615915ff343a",
+          "eventTopic": "0xa945e51eec50ab98c161376f0db4cf2aeba3ec92755fe2fcd388bdbbb80ff196"
+        },
+        {
+          "contractAddress": "0x3d1c943dfb2c8d9905b0da0afd18615915ff343a",
+          "eventTopic": "0xe9e508bad6d4c3227e881ca19068f099da81b5164dd6d62b2eaf1e8bc6c34931"
         }
       ]
     }

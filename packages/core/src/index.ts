@@ -7,8 +7,13 @@ export type { Hex } from "./hex.js";
 export { sha256Hex } from "./hash.js";
 export type { Store } from "./store.js";
 export { HttpStore } from "./http-store.js";
-export type { CanonicalEvent, CanonicalEntity, CanonicalRecord } from "./events.js";
-export { isEntityRecord } from "./events.js";
+export type { CanonicalEvent, CanonicalEntity, CanonicalRecord, ExtraLogField } from "./events.js";
+export {
+  isEntityRecord,
+  BASE_LOG_FIELDS,
+  EXTRA_LOG_FIELDS,
+  canonicalExtraLogFields,
+} from "./events.js";
 
 export { Manifest, MANIFEST_VERSION } from "./manifest.js";
 export type {

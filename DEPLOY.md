@@ -143,6 +143,43 @@ Once provisioned, point the deploy/publish scripts at it by exporting
 print that as the consumer read URL. The client CLI takes the endpoint as its
 `<manifest-url>` argument, so there's no hardcoded URL to change in code.
 
+## The `/v2` publication (Privacy Pools with `transactionHash`)
+
+A second, independent publication lives under `gs://BUCKET/v2/`, beside the
+untouched v1 at the bucket root. It carries only the Privacy Pools streams, with
+`extraLogFields: ["transactionHash"]` on each (`publish-config.v2.json`). The
+`/v2` path is a **publication** version; it is unrelated to the manifest's
+`version` stamp, which stays `1`.
+
+It is the same image run as a second job, with its own manifest — one writer per
+manifest, so the two jobs never contend. Same RPC and signing-key secrets (one
+publisher identity), scheduled an hour after v1 so they don't share the RPC rate
+limit:
+```sh
+PROJECT=privacy-protocols BUCKET=pp-state ALERT_EMAIL=you@example.com \
+JOB=scraper-daily-v2 SCHED=scraper-daily-v2 CRON="0 7 * * *" \
+OUTPUT_URI=gs://pp-state/v2 CONFIG_URI=gs://pp-state/v2/publish-config.json \
+CONFIG_FILE=./publish-config.v2.json \
+./deploy/cloud-run-job.sh
+```
+Build a fresh image (the default `BUILD=local`) the first time: an image that
+predates `extraLogFields` would accept this config but ignore the field, and
+publish v2 without hashes. Each job pins its own image tag, so this does not
+touch the v1 job.
+Sepolia follows the same split as v1 (`/sepolia` → `/v2/sepolia`):
+`JOB=scraper-daily-v2-sepolia`, `OUTPUT_URI=gs://pp-state/v2/sepolia`,
+`CONFIG_URI=gs://pp-state/v2/sepolia/publish-config.json`,
+`CONFIG_FILE=./publish-config.v2.sepolia.json`, `RPC_SECRET=<the Sepolia RPC secret>`.
+
+Alert policies are keyed by `$JOB`, so each v2 job gets its own pair. The CDN
+needs no change: both Cloud CDN and Fastly front the whole bucket, so consumers
+read `https://<cdn>/v2/index.json` (and `/v2/sepolia/index.json`). Older clients
+read v2 unchanged — they ignore the manifest's `extraLogFields` and pass the extra
+key through.
+
+The first execution backfills each stream from its `fromBlock`; it resumes from
+the manifest, so if it hits the task timeout just execute it again.
+
 ## Operability
 
 - **Logs** stream to Cloud Logging automatically (`gcloud run jobs executions list …`).

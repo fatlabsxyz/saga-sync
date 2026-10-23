@@ -303,6 +303,25 @@ async function runPool<T>(
   await Promise.all(runners);
 }
 
+// Null when the stream may be extended under its configured extraLogFields: it
+// has published nothing yet, or what it published was declared with the same
+// set. Otherwise a message naming both sides.
+export function extraLogFieldsMismatch(
+  manifest: Manifest,
+  protocolId: string,
+  protocol: ScraperTarget,
+): string | null {
+  if (manifest.lastCoveredBlock(protocolId) === null) return null;
+  const published = manifest.extraLogFields(protocolId) ?? [];
+  const configured = protocol.extraLogFields ?? [];
+  if (published.join(",") === configured.join(",")) return null;
+  const show = (f: readonly string[]) => (f.length ? f.join(", ") : "none");
+  return (
+    `config asks for extraLogFields [${show(configured)}] but the stream was ` +
+    `published with [${show(published)}]; a stream's record shape cannot change`
+  );
+}
+
 async function main(): Promise<void> {
   const args = parseCliArgs();
   const storeConfig = parseStoreTarget(args.output);
@@ -388,6 +407,15 @@ async function main(): Promise<void> {
       return "ran";
     }
 
+    // The record shape is fixed for a stream's lifetime: extending a published
+    // stream under a different extraLogFields would mix record shapes, which
+    // clients reject. Changing it means retiring the stream (or a new prefix).
+    const mismatch = extraLogFieldsMismatch(manifest, protocolId, protocol);
+    if (mismatch) {
+      process.stderr.write(`orchestrator: ${protocolId} failed — ${mismatch}\n`);
+      return "failed";
+    }
+
     try {
       await manifest.setProtocolMeta(protocolId, {
         protocol: protocol.protocol,
@@ -395,6 +423,7 @@ async function main(): Promise<void> {
         chainId: protocol.chainId,
         trackedAddresses: protocol.trackedAddresses,
         trackedEventTopics: protocol.trackedEventTopics,
+        extraLogFields: protocol.extraLogFields,
       });
       const result = await processProtocol({
         source,
