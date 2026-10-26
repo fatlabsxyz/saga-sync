@@ -136,6 +136,53 @@ describe("verifyChunkEvents", () => {
     });
   });
 
+  describe("field set (with expectations)", () => {
+    const meta = rangeMeta(0x10, 0x20);
+    const hash = `0x${"ab".repeat(32)}`;
+    const withHash = (block: number): CanonicalEvent => ({ ...ev(block), transactionHash: hash });
+
+    it("passes base-only logs when nothing extra is declared", () => {
+      expect(() => verifyChunkEvents(meta, [ev(0x10)], {})).not.toThrow();
+    });
+
+    it("passes logs carrying a declared transactionHash", () => {
+      expect(() =>
+        verifyChunkEvents(meta, [withHash(0x10), withHash(0x11)], {
+          extraLogFields: ["transactionHash"],
+        }),
+      ).not.toThrow();
+    });
+
+    it("throws when a declared field is missing from one record", () => {
+      expect(() =>
+        verifyChunkEvents(meta, [withHash(0x10), ev(0x11)], {
+          extraLogFields: ["transactionHash"],
+        }),
+      ).toThrow(CanonicalFormError);
+    });
+
+    it("throws on an undeclared extra field", () => {
+      expect(() => verifyChunkEvents(meta, [withHash(0x10)], {})).toThrow(/has fields/);
+    });
+
+    it("throws when fields are out of order", () => {
+      const { contractAddress, ...rest } = ev(0x10);
+      const reordered = { ...rest, contractAddress } as CanonicalEvent;
+      expect(() => verifyChunkEvents(meta, [reordered], {})).toThrow(/has fields/);
+    });
+
+    it("throws on a malformed transactionHash", () => {
+      const bad = { ...ev(0x10), transactionHash: "0xABC" };
+      expect(() =>
+        verifyChunkEvents(meta, [bad], { extraLogFields: ["transactionHash"] }),
+      ).toThrow(/malformed transactionHash/);
+    });
+
+    it("skips the field-set check without expectations", () => {
+      expect(() => verifyChunkEvents(meta, [withHash(0x10)])).not.toThrow();
+    });
+  });
+
   it("throws when an event is at/above toBlock (exclusive end)", () => {
     expect(() => verifyChunkEvents(rangeMeta(0x10, 0x20), [ev(0x20)])).toThrow(/outside/);
   });

@@ -1,5 +1,5 @@
 import type { PublicClient } from "viem";
-import type { CanonicalRecord } from "@saga-sync/core";
+import type { CanonicalRecord, ExtraLogField } from "@saga-sync/core";
 import { scrape } from "../scraper/scrape.js";
 import { normalize } from "../scraper/normalize.js";
 import type { EventFilter } from "../scraper/config.js";
@@ -23,6 +23,8 @@ export class RpcLogSource implements ScraperSource {
     // rpc-sourced stream — one eth_getBlockByNumber("finalized") for the run
     // rather than one per protocol.
     private readonly finalizedTip: bigint,
+    // Optional fields kept on every record beyond the base six (see normalize).
+    private readonly extraLogFields: readonly ExtraLogField[] = [],
   ) {}
 
   async *fetch(fromBlock: bigint, toBlock: bigint): AsyncGenerator<CanonicalRecord> {
@@ -32,7 +34,7 @@ export class RpcLogSource implements ScraperSource {
       events: this.events,
       window: this.window,
     })) {
-      yield normalize(log);
+      yield normalize(log, { extraLogFields: this.extraLogFields });
     }
   }
 

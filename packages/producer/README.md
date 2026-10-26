@@ -232,13 +232,16 @@ gunzip -c './chunks/tornado-cash-1-eth-0.1-[0xc50101,0xc50201).jsonl.gz' | jq -c
 - **`config.ts`** — reads the config JSON, zod-validates **only** the fields the
   pipeline uses. `loadConfig(path, id)` returns one `ScraperTarget`;
   `loadAllProtocols(path)` returns all. Validated: `chainId`, `fromBlock`,
-  `events[]`; optional `chunkSettings.maxSizeBytes`, `protocol`, `protocolMetadata`.
+  `events[]`; optional `chunkSettings.maxSizeBytes`, `protocol`, `protocolMetadata`,
+  `extraLogFields` (rpc sources only; canonicalized to serialization order).
   Derives `trackedAddresses`/`trackedEventTopics` from the unique
   `events[].contractAddress`/`.eventTopic` in first-seen order.
 - **`normalize.ts`** — `normalize(rpcLog)` → `CanonicalEvent`: lowercases every hex
   field, sets `eventTopic = topics[0]`, keeps the full `topics` array (indexed args
-  like commitments/nullifiers), rejects pending logs, and drops only
-  `transactionHash`/`blockHash`.
+  like commitments/nullifiers), rejects pending logs, and drops
+  `transactionHash`/`blockHash` — unless the stream's `extraLogFields` asks for
+  `transactionHash`, which is then appended after `logIndex` (a log without one
+  throws).
 - **`scrape.ts`** — `scrape(client, opts)`, an async generator yielding raw RPC
   logs. Slices `[fromBlock, toBlock]` into `window`-sized sub-ranges, issuing one
   `eth_getLogs` per event filter; on a range/result-size error it **halves the
@@ -366,6 +369,7 @@ the schedule is external — all protocols in one config share one store + manif
 | `chunkSettings.maxSizeBytes` | no | per-protocol chunk cap (number or `0x`-hex) |
 | `protocol` | no | family name copied into the manifest (e.g. `tornado-cash`) |
 | `protocolMetadata` | no | free-form passthrough; **immutable per stream** once first published |
+| `extraLogFields` | no | optional log fields kept on every record — only `["transactionHash"]` exists. rpc sources only. Fixed for the stream's lifetime: the orchestrator fails a stream whose published declaration differs from config |
 
 The protocol key `${protocol}-${chainId}-${instanceId}` is treated as an opaque id
 (chain identity comes from the explicit `chainId`, since the key itself isn't
@@ -417,7 +421,8 @@ These are what make two independent scrapers produce byte-identical chunks (see
    "range too large" / "too many results" error, halve the window and retry.
    Buffer + sort each window before yielding.
 2. **Normalization keeps the whole log** — lowercase all hex; `eventTopic` =
-   `topics[0]`; keep `topics[1..]`; drop only `transactionHash`/`blockHash`.
+   `topics[0]`; keep `topics[1..]`; drop `transactionHash`/`blockHash` unless the
+   stream declares `transactionHash` in `extraLogFields`.
 3. **Block-aligned chunking** — a chunk covers a half-open `[from, to)`; boundaries
    fall between blocks, so all events of a block land in exactly one chunk.
 4. **Size-bounded sealing** — seal when accumulated **uncompressed** bytes would

@@ -106,7 +106,10 @@ Everything the client serves is verified — **cache hits included**:
   can't catch on its own — every record within the chunk's `[from, to)` range,
   strictly ascending (logs by `(blockNumber, logIndex)`, entity records by
   `(blockNumber, transactionIndex, opIndex)`), and no chunk mixing the two kinds;
-  violations throw `CanonicalFormError`.
+  violations throw `CanonicalFormError`. Given the stream's expectations (which
+  `streamEvents` always passes), it also checks every log carries exactly the
+  base six fields plus the stream's declared `extraLogFields`, in order — so a
+  `/v2` stream's `transactionHash` is guaranteed present and well-formed.
 - A missing file throws `ChunkNotFoundError`, kept distinct from a digest mismatch
   so callers can tell "absent" from "tampered".
 

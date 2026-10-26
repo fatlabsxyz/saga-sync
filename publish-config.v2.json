@@ -1,0 +1,456 @@
+{
+  "protocols": {
+    "privacy-pools-1-eth": {
+      "chainId": "0x1",
+      "fromBlock": "0x15209f2",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "ETH",
+        "assetAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "decimals": 18
+      },
+      "events": [
+        {
+          "contractAddress": "0xf241d57c6debae225c0f2e6ea1529373c9a9c9fb",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0xf241d57c6debae225c0f2e6ea1529373c9a9c9fb",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0xf241d57c6debae225c0f2e6ea1529373c9a9c9fb",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-usds": {
+      "chainId": "0x1",
+      "fromBlock": "0x15dd2ec",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "USDS",
+        "assetAddress": "0xdc035d45d973e3ec169d2276ddab16f1e407384f",
+        "decimals": 18
+      },
+      "events": [
+        {
+          "contractAddress": "0x05e4dbd71b56861eed2aaa12d00a797f04b5d3c0",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0x05e4dbd71b56861eed2aaa12d00a797f04b5d3c0",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0x05e4dbd71b56861eed2aaa12d00a797f04b5d3c0",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-susds": {
+      "chainId": "0x1",
+      "fromBlock": "0x15e1114",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "sUSDS",
+        "assetAddress": "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd",
+        "decimals": 18
+      },
+      "events": [
+        {
+          "contractAddress": "0xbbda2173cdfea1c3bd7f2908798f1265301d750c",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0xbbda2173cdfea1c3bd7f2908798f1265301d750c",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0xbbda2173cdfea1c3bd7f2908798f1265301d750c",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-dai": {
+      "chainId": "0x1",
+      "fromBlock": "0x15e25cf",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "DAI",
+        "assetAddress": "0x6b175474e89094c44da98b954eedeac495271d0f",
+        "decimals": 18
+      },
+      "events": [
+        {
+          "contractAddress": "0x1c31c03b8cb2ee674d0f11de77135536db828257",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0x1c31c03b8cb2ee674d0f11de77135536db828257",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0x1c31c03b8cb2ee674d0f11de77135536db828257",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-usdt": {
+      "chainId": "0x1",
+      "fromBlock": "0x15ec8d0",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "USDT",
+        "assetAddress": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        "decimals": 6
+      },
+      "events": [
+        {
+          "contractAddress": "0xe859c0bd25f260baee534fb52e307d3b64d24572",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0xe859c0bd25f260baee534fb52e307d3b64d24572",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0xe859c0bd25f260baee534fb52e307d3b64d24572",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-usdc": {
+      "chainId": "0x1",
+      "fromBlock": "0x15ec8d0",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "USDC",
+        "assetAddress": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        "decimals": 6
+      },
+      "events": [
+        {
+          "contractAddress": "0xb419c2867ab3cbc78921660cb95150d95a94ce86",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0xb419c2867ab3cbc78921660cb95150d95a94ce86",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0xb419c2867ab3cbc78921660cb95150d95a94ce86",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-wsteth": {
+      "chainId": "0x1",
+      "fromBlock": "0x15f9617",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "wstETH",
+        "assetAddress": "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0",
+        "decimals": 18
+      },
+      "events": [
+        {
+          "contractAddress": "0x1a604e9dfa0efdc7ffda378af16cb81243b61633",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0x1a604e9dfa0efdc7ffda378af16cb81243b61633",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0x1a604e9dfa0efdc7ffda378af16cb81243b61633",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-wbtc": {
+      "chainId": "0x1",
+      "fromBlock": "0x15f9617",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "WBTC",
+        "assetAddress": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+        "decimals": 8
+      },
+      "events": [
+        {
+          "contractAddress": "0xf973f4b180a568157cd7a0e6006449139e6bfc32",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0xf973f4b180a568157cd7a0e6006449139e6bfc32",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0xf973f4b180a568157cd7a0e6006449139e6bfc32",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-usde": {
+      "chainId": "0x1",
+      "fromBlock": "0x1606fea",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "USDe",
+        "assetAddress": "0x4c9edd5852cd905f086c759e8383e09bff1e68b3",
+        "decimals": 18
+      },
+      "events": [
+        {
+          "contractAddress": "0xe6d36b33b00a7c0cb0c2a8d39d07e7db0c526abc",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0xe6d36b33b00a7c0cb0c2a8d39d07e7db0c526abc",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0xe6d36b33b00a7c0cb0c2a8d39d07e7db0c526abc",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-usd1": {
+      "chainId": "0x1",
+      "fromBlock": "0x1606fea",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "USD1",
+        "assetAddress": "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d",
+        "decimals": 18
+      },
+      "events": [
+        {
+          "contractAddress": "0xc0a8bc0f4f982b4d4f1ffae8f4fccb58c9b29c98",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0xc0a8bc0f4f982b4d4f1ffae8f4fccb58c9b29c98",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0xc0a8bc0f4f982b4d4f1ffae8f4fccb58c9b29c98",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-frxusd": {
+      "chainId": "0x1",
+      "fromBlock": "0x1606fea",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "frxUSD",
+        "assetAddress": "0xcacd6fd266af91b8aed52accc382b4e165586e29",
+        "decimals": 18
+      },
+      "events": [
+        {
+          "contractAddress": "0xc6c769fac7aabeadd31a03fae5ca0ec5b4c50f84",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0xc6c769fac7aabeadd31a03fae5ca0ec5b4c50f84",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0xc6c769fac7aabeadd31a03fae5ca0ec5b4c50f84",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-woeth": {
+      "chainId": "0x1",
+      "fromBlock": "0x162a285",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "wOETH",
+        "assetAddress": "0xdcee70654261af21c44c093c300ed3bb97b78192",
+        "decimals": 18
+      },
+      "events": [
+        {
+          "contractAddress": "0x7d2959bcfb936a84531518e8391ddba844e03ebe",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0x7d2959bcfb936a84531518e8391ddba844e03ebe",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0x7d2959bcfb936a84531518e8391ddba844e03ebe",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-fxusd": {
+      "chainId": "0x1",
+      "fromBlock": "0x16e7fd6",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "fxUSD",
+        "assetAddress": "0x085780639cc2cacd35e474e71f4d000e2405d8f6",
+        "decimals": 18
+      },
+      "events": [
+        {
+          "contractAddress": "0xd14f4b36e1d1d98c218db782c49149876042bc56",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0xd14f4b36e1d1d98c218db782c49149876042bc56",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0xd14f4b36e1d1d98c218db782c49149876042bc56",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-bold": {
+      "chainId": "0x1",
+      "fromBlock": "0x174da44",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "asset": "BOLD",
+        "assetAddress": "0x6440f144b7e50d6a8439336510312d2f54beb01d",
+        "decimals": 18
+      },
+      "events": [
+        {
+          "contractAddress": "0xb4b5fd38fd4788071d7287e3cb52948e0d10b23e",
+          "eventTopic": "0xe3b53cd1a44fbf11535e145d80b8ef1ed6d57a73bf5daa7e939b6b01657d6549"
+        },
+        {
+          "contractAddress": "0xb4b5fd38fd4788071d7287e3cb52948e0d10b23e",
+          "eventTopic": "0x75e161b3e824b114fc1a33274bd7091918dd4e639cede50b78b15a4eea956a21"
+        },
+        {
+          "contractAddress": "0xb4b5fd38fd4788071d7287e3cb52948e0d10b23e",
+          "eventTopic": "0xd2b3e868ae101106371f2bd93abc8d5a4de488b9fe47ed122c23625aa7172f13"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    },
+    "privacy-pools-1-entrypoint": {
+      "chainId": "0x1",
+      "fromBlock": "0x15209f1",
+      "chunkSettings": {
+        "maxSizeBytes": "0xa00000"
+      },
+      "protocol": "privacy-pools",
+      "protocolMetadata": {
+        "kind": "entrypoint"
+      },
+      "events": [
+        {
+          "contractAddress": "0x6818809eefce719e480a7526d76bd3e561526b46",
+          "eventTopic": "0xf5681f9d0db1b911ac18ee83d515a1cf1051853a9eae418316a2fdf7dea427c5"
+        },
+        {
+          "contractAddress": "0x6818809eefce719e480a7526d76bd3e561526b46",
+          "eventTopic": "0xf43641373d5bc20fddfffcd0496fd39bde41e1aa0ce326d8899b7e658261ac02"
+        },
+        {
+          "contractAddress": "0x6818809eefce719e480a7526d76bd3e561526b46",
+          "eventTopic": "0xf9db649aad81ad9a4497a5f606f7aeff83c48f87b5d86c78efc5700ca8098f77"
+        },
+        {
+          "contractAddress": "0x6818809eefce719e480a7526d76bd3e561526b46",
+          "eventTopic": "0x553cc33d23d2e9040c6bf11923a373315dc4c6ecb52c37451cbfc0b5903e2ec6"
+        }
+      ],
+      "extraLogFields": [
+        "transactionHash"
+      ]
+    }
+  }
+}

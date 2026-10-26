@@ -479,6 +479,28 @@ describe("Manifest", () => {
       expect(reloaded.trackedEventTopics("proto")).toEqual(["0x111"]);
     });
 
+    it("records extraLogFields write-once, and leaves an empty set unserialized", async () => {
+      const m = await Manifest.load(store);
+      await m.setProtocolMeta("with", { extraLogFields: ["transactionHash"] });
+      await m.setProtocolMeta("with", { extraLogFields: [] });
+      await m.setProtocolMeta("without", { protocol: "tornado-cash", extraLogFields: [] });
+      await m.flush();
+      const reloaded = await Manifest.load(store);
+      expect(reloaded.extraLogFields("with")).toEqual(["transactionHash"]);
+      expect(reloaded.extraLogFields("without")).toBeUndefined();
+      const raw = JSON.parse(new TextDecoder().decode((await store.get("index.json"))!));
+      expect("extraLogFields" in raw.availableProtocols.without).toBe(false);
+      // Serialized after the tracked sets, before chunks.
+      await m.setProtocolMeta("with", { trackedEventTopics: ["0x111"] });
+      await m.flush();
+      const raw2 = JSON.parse(new TextDecoder().decode((await store.get("index.json"))!));
+      expect(Object.keys(raw2.availableProtocols.with)).toEqual([
+        "trackedEventTopics",
+        "extraLogFields",
+        "chunks",
+      ]);
+    });
+
     it("metadata survives alongside chunks and a hot head", async () => {
       const m = await Manifest.load(store);
       await m.setProtocolMeta("proto", { protocol: "privacy-pools" });

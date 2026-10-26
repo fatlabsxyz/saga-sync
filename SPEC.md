@@ -95,6 +95,7 @@ Each stream key maps to one entry holding its descriptive metadata plus its chun
 | `…{}.chainId` | The chain the stream is scraped from, `0x`-hex. Optional. |
 | `…{}.trackedAddresses` | The unique contract addresses whose events the stream collects. Optional. |
 | `…{}.trackedEventTopics` | The unique event `topic0`s (event-signature hashes) the stream collects. Optional. Lets a consumer filter a stream by event type. |
+| `…{}.extraLogFields` | Optional log fields every record of the stream carries beyond the base six (§3.2), e.g. `["transactionHash"]`. Absent means none. **Immutable per stream**, like `protocolMetadata`: it describes the shape of every chunk already published. |
 | `…{}.chunks` | Ordered array of the stream's **sealed** (immutable) chunk descriptors. |
 | `…{}.hotHead` | The stream's single **hot head** descriptor (the mutable trailing chunk). Optional; absent when there is no in-progress tail. |
 | `…chunk.fromBlock` | First block in the chunk's range (inclusive). |
@@ -135,14 +136,16 @@ Each line is self-describing (it carries its own `contractAddress`/`eventTopic`)
 
 **Ordering:** events MUST be globally sorted by `(blockNumber, logIndex)` ascending. This ordering is deterministic and affects the chunk digest -- a differently-ordered chunk with the same events produces a different digest and fails validation.
 
-**Note on hashes:** the format intentionally omits `transactionHash` and `blockHash` to minimize chunk size. These hashes are incompressible and add significant bloat. The reorg safety buffer (Section 6) ensures sealed chunks only contain finalized events, eliminating the need for block hash verification. They are also not recoverable from the chunk alone, but neither is needed for state reconstruction; protocol-specific validation (e.g., merkle tree reconstruction) provides integrity guarantees beyond what these hashes would offer.
+**Note on hashes:** by default the format omits `transactionHash` and `blockHash` to minimize chunk size. These hashes are incompressible and add significant bloat. The reorg safety buffer (Section 6) ensures sealed chunks only contain finalized events, eliminating the need for block hash verification. They are also not recoverable from the chunk alone, but neither is needed for state reconstruction; protocol-specific validation (e.g., merkle tree reconstruction) provides integrity guarantees beyond what these hashes would offer.
+
+**Optional `transactionHash`:** a stream MAY opt in to a seventh field, `transactionHash` (the log's 32-byte transaction hash), for consumers that need to tie an event to its transaction (e.g. to show it to a user or fetch its receipt). The stream declares this in its manifest entry as `extraLogFields: ["transactionHash"]`, and then **every** log record of that stream carries it; a stream without the declaration carries it on **none**. `blockHash` is not offered.
 
 ### 3.3 Canonical Form (Normalization)
 
 Chunks are content-addressed: a chunk's identity is the SHA-256 of its bytes (§7.2). For two scrapers to agree on a digest, the bytes must be produced deterministically. A conforming chunk MUST observe all of the following.
 
-1. **Field set and order.** Each **log** object contains exactly the six fields of §3.2, serialized in this order: `contractAddress`, `eventTopic`, `topics`, `data`, `blockNumber`, `logIndex`. No other keys. `eventTopic` MUST equal `topics[0]`. (For the second record kind, see §3.4.)
-2. **Hex casing.** Every hex value is lowercase and `0x`-prefixed. Byte strings (`contractAddress` = 20 bytes, each `topics` entry = 32 bytes, `data` = arbitrary length) are emitted verbatim. The quantities `blockNumber` and `logIndex` are minimal hex — no leading zeros (e.g. `0x0`, `0x1a2b`).
+1. **Field set and order.** Each **log** object contains exactly the six fields of §3.2, serialized in this order: `contractAddress`, `eventTopic`, `topics`, `data`, `blockNumber`, `logIndex` — followed by the stream's declared `extraLogFields`, if any, in this order: `transactionHash`. No other keys. `eventTopic` MUST equal `topics[0]`. (For the second record kind, see §3.4.)
+2. **Hex casing.** Every hex value is lowercase and `0x`-prefixed. Byte strings (`contractAddress` = 20 bytes, each `topics` entry = 32 bytes, `transactionHash` = 32 bytes, `data` = arbitrary length) are emitted verbatim. The quantities `blockNumber` and `logIndex` are minimal hex — no leading zeros (e.g. `0x0`, `0x1a2b`).
 3. **JSON encoding.** Each event is encoded as compact JSON with no insignificant whitespace (no spaces after `:` or `,`), and `topics` is a JSON array in log order.
 4. **Line framing (JSONL).** One event per line, each line — including the last — terminated by a single `\n` (`U+000A`). An empty chunk (a scanned range with no matching events) is a **zero-byte** payload.
 5. **Ordering.** Records are globally sorted ascending across the whole chunk — logs by `(blockNumber, logIndex)`, entity records by `(blockNumber, transactionIndex, opIndex)` — not grouped by contract or topic. The order MUST be **strict**: no two records in a chunk may share a sort key.

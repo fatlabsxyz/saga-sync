@@ -14,11 +14,12 @@ export type { Store } from "@saga-sync/core";
 // Read helpers and the errors a consumer handles.
 export { decodeAndVerify, fetchChunkFrom, ChunkNotFoundError } from "./fetch.js";
 export { verifyDigest, DigestMismatchError } from "./verify.js";
+export type { ChunkExpectations } from "./verify.js";
 export { loadManifest } from "./manifest.js";
 export type { ChunkMeta, ManifestData, LoadManifestOptions } from "./manifest.js";
 
 // Manifest signature verification (Ed25519) — consumers pin a public key.
 export { verifyManifestSignature, ManifestSignatureError } from "@saga-sync/core";
 
-export type { CanonicalEvent, CanonicalEntity, CanonicalRecord } from "@saga-sync/core";
+export type { CanonicalEvent, CanonicalEntity, CanonicalRecord, ExtraLogField } from "@saga-sync/core";
 export { isEntityRecord } from "@saga-sync/core";

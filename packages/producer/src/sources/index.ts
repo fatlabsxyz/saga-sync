@@ -31,7 +31,13 @@ export function createSource(target: ScraperTarget, opts: CreateSourceOptions): 
         // programmatic caller could get here.
         throw new Error('an "rpc" source requires event filters');
       }
-      return new RpcLogSource(opts.client, target.events, opts.window, opts.finalizedTip);
+      return new RpcLogSource(
+        opts.client,
+        target.events,
+        opts.window,
+        opts.finalizedTip,
+        target.extraLogFields,
+      );
     case "calldata":
       return new CalldataSource({
         client: opts.client,

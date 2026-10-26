@@ -1,7 +1,8 @@
 import { sha256Hex } from "@saga-sync/core";
 import type { ChunkMeta } from "@saga-sync/core";
 import type { CanonicalRecord } from "@saga-sync/core";
-import { isEntityRecord } from "@saga-sync/core";
+import { isEntityRecord, BASE_LOG_FIELDS } from "@saga-sync/core";
+import type { ExtraLogField } from "@saga-sync/core";
 
 // Thrown when a chunk's recomputed digest does not match the manifest. Carries
 // both digests so the caller can log them; both are lower-case 0x-prefixed.
@@ -79,17 +80,34 @@ function describe(record: CanonicalRecord): string {
     : `(block ${record.blockNumber}, logIndex ${(record as { logIndex: string }).logIndex})`;
 }
 
+// What the stream's manifest entry says its records look like. Passed by the
+// Client for every chunk; omitted by a caller that has no manifest entry at
+// hand, in which case the per-log field-set check (4) is skipped.
+export type ChunkExpectations = {
+  // The stream's declared optional log fields; absent or empty means none.
+  extraLogFields?: readonly ExtraLogField[];
+};
+
+const TX_HASH = /^0x[0-9a-f]{64}$/;
+
 // Validate the §3.3 properties the digest does not *semantically* enforce:
 //   1. every record's blockNumber is within the chunk's [fromBlock, toBlock) range
 //   2. records are strictly ascending by their sort key
 //   3. a chunk holds one KIND of record — logs or entities, never a mix
+//   4. (with `expect`) every log has exactly the base fields plus the stream's
+//      declared extras, in serialization order
 // Empty chunks pass trivially. Mandatory on every chunk, like the digest.
 //
 // (3) matters because the two kinds carry different provenance: a log is
 // verifiable against an archive node, an entity is someone's derivation. Letting
 // them interleave in one stream would let a derived record hide among records
 // that can be independently checked.
-export function verifyChunkEvents(meta: ChunkMeta, events: CanonicalRecord[]): void {
+export function verifyChunkEvents(
+  meta: ChunkMeta,
+  events: CanonicalRecord[],
+  expect?: ChunkExpectations,
+): void {
+  const fields = expect ? [...BASE_LOG_FIELDS, ...(expect.extraLogFields ?? [])].join(",") : null;
   const from = BigInt(meta.fromBlock);
   const to = BigInt(meta.toBlock);
   let prevKey: bigint[] | null = null;
@@ -104,6 +122,25 @@ export function verifyChunkEvents(meta: ChunkMeta, events: CanonicalRecord[]): v
         meta,
         `mixes ${kind} and ${thisKind} records; a stream carries one kind`,
       );
+    }
+
+    if (fields !== null && thisKind === "log") {
+      // Exact keys in exact order: a missing declared field, an undeclared extra,
+      // or a reordering all mean the stream is not what its manifest says.
+      const keys = Object.keys(record).join(",");
+      if (keys !== fields) {
+        throw new CanonicalFormError(
+          meta,
+          `log ${describe(record)} has fields [${keys}], expected [${fields}]`,
+        );
+      }
+      const txHash = (record as { transactionHash?: unknown }).transactionHash;
+      if (txHash !== undefined && (typeof txHash !== "string" || !TX_HASH.test(txHash))) {
+        throw new CanonicalFormError(
+          meta,
+          `log ${describe(record)} has a malformed transactionHash ${String(txHash)}`,
+        );
+      }
     }
 
     const block = BigInt(record.blockNumber);

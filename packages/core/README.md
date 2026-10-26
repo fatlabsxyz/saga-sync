@@ -58,11 +58,12 @@ mutation. The **normative on-the-wire schema** is in the root
 - **Reads**: `sealedChunks(id)`, `hotHead(id)`, `protocolIds()`,
   `firstCoveredBlock(id)` / `lastCoveredBlock(id)`, `gaps(id)`, plus the metadata
   accessors `protocolName`/`protocolMetadata`/`chainId`/`trackedAddresses`/
-  `trackedEventTopics`.
+  `trackedEventTopics`/`extraLogFields`.
 - **Mutations** (serialized through an internal mutex): `appendChunk`,
   `setHotHead`, `clearHotHead`, and the **write-once** `setProtocolMeta(id, …)` —
-  it fills only fields still unset, so `protocolMetadata` is immutable per stream
-  once first written.
+  it fills only fields still unset, so `protocolMetadata` (and `extraLogFields`)
+  is immutable per stream once first written. An empty `extraLogFields` is never
+  written, so streams without extras serialize as they always have.
 - **Format**: `MANIFEST_VERSION = 1`. The format is still in development, so the
   `version` field is informational — `fromRaw` reads the `availableProtocols`
   shape and does not gate on the number (a manifest carrying an older development

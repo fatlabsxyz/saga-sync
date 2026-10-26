@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import type { Hex } from "viem";
+import { EXTRA_LOG_FIELDS, canonicalExtraLogFields } from "@saga-sync/core";
+import type { ExtraLogField } from "@saga-sync/core";
 
 const address = z
   .string()
@@ -67,6 +69,11 @@ const targetSchema = z.object({
   // protocol-specific fields. See the manifest's write-once immutability note.
   protocol: z.string().optional(),
   protocolMetadata: z.record(z.unknown()).optional(),
+  // Optional log fields to keep beyond the base six (e.g. "transactionHash").
+  // Declared in the manifest and carried by every record of the stream, so it
+  // must be decided before the stream's first chunk — the orchestrator refuses
+  // to extend a stream whose published declaration differs.
+  extraLogFields: z.array(z.enum(EXTRA_LOG_FIELDS)).optional(),
 }).superRefine((t, ctx) => {
   const kind = t.source?.kind ?? "rpc";
   if (kind === "rpc" && (t.events === undefined || t.events.length === 0)) {
@@ -81,6 +88,13 @@ const targetSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["events"],
       message: `events are only meaningful for an rpc source (this stream's source is "${kind}")`,
+    });
+  }
+  if (kind !== "rpc" && t.extraLogFields !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["extraLogFields"],
+      message: `extraLogFields only applies to log records (this stream's source is "${kind}")`,
     });
   }
 });
@@ -119,6 +133,8 @@ export type ScraperTarget = {
   protocolMetadata?: Record<string, unknown>;
   trackedAddresses?: Hex[];
   trackedEventTopics?: Hex[];
+  // Canonicalized (deduped, serialization order). Absent when none are requested.
+  extraLogFields?: ExtraLogField[];
 };
 
 function readAndParse(path: string): Record<string, unknown> {
@@ -167,6 +183,8 @@ function parseTarget(path: string, protocolId: string, raw: unknown): ScraperTar
   if (parsed.data.protocolMetadata !== undefined) {
     target.protocolMetadata = parsed.data.protocolMetadata;
   }
+  const extra = canonicalExtraLogFields(parsed.data.extraLogFields ?? []);
+  if (extra.length > 0) target.extraLogFields = extra;
   return target;
 }
 
