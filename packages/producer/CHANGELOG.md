@@ -1,5 +1,16 @@
 # @saga-sync/producer
 
+## 0.3.0
+
+### Minor Changes
+
+- 6c5c696: Streams can opt in to a `transactionHash` on every log record via `extraLogFields: ["transactionHash"]` in config. The declaration is recorded in the manifest entry (write-once), and the client now checks each log's field set against it. Streams without the declaration serialize byte-for-byte as before.
+
+### Patch Changes
+
+- Updated dependencies [6c5c696]
+  - @saga-sync/core@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes
