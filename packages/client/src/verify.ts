@@ -74,7 +74,6 @@ function compareKeys(a: bigint[], b: bigint[]): number {
 }
 
 function describe(record: CanonicalRecord): string {
-  const k = sortKey(record);
   return isEntityRecord(record)
     ? `(block ${record.blockNumber}, tx ${record.transactionIndex}, op ${record.opIndex})`
     : `(block ${record.blockNumber}, logIndex ${(record as { logIndex: string }).logIndex})`;
@@ -89,6 +88,36 @@ export type ChunkExpectations = {
 };
 
 const TX_HASH = /^0x[0-9a-f]{64}$/;
+// A quantity as SPEC §3.3 writes it: lower-case, minimal 0x-hex, no leading zeros.
+const QUANTITY = /^0x(0|[1-9a-f][0-9a-f]*)$/;
+
+// The quantities a record is ordered by. A position inside a block (log index,
+// transaction index, op index) is also kept within Number.MAX_SAFE_INTEGER, so a
+// consumer can take it as a JS number without rounding.
+function quantities(record: CanonicalRecord): [string, unknown, boolean][] {
+  return isEntityRecord(record)
+    ? [
+        ["blockNumber", record.blockNumber, false],
+        ["transactionIndex", record.transactionIndex, true],
+        ["opIndex", record.opIndex, true],
+      ]
+    : [
+        ["blockNumber", record.blockNumber, false],
+        ["logIndex", (record as { logIndex?: unknown }).logIndex, true],
+      ];
+}
+
+function malformedQuantity(record: CanonicalRecord): string | null {
+  for (const [name, value, inBlock] of quantities(record)) {
+    if (typeof value !== "string" || !QUANTITY.test(value)) {
+      return `${name} ${JSON.stringify(value)} is not a minimal lower-case 0x-hex quantity`;
+    }
+    if (inBlock && BigInt(value) > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return `${name} ${value} is past Number.MAX_SAFE_INTEGER`;
+    }
+  }
+  return null;
+}
 
 // Validate the §3.3 properties the digest does not *semantically* enforce:
 //   1. every record's blockNumber is within the chunk's [fromBlock, toBlock) range
@@ -96,6 +125,8 @@ const TX_HASH = /^0x[0-9a-f]{64}$/;
 //   3. a chunk holds one KIND of record — logs or entities, never a mix
 //   4. (with `expect`) every log has exactly the base fields plus the stream's
 //      declared extras, in serialization order
+//   5. every ordering quantity is a minimal lower-case 0x-hex string, and the
+//      in-block ones fit a JS number
 // Empty chunks pass trivially. Mandatory on every chunk, like the digest.
 //
 // (3) matters because the two kinds carry different provenance: a log is
@@ -141,6 +172,13 @@ export function verifyChunkEvents(
           `log ${describe(record)} has a malformed transactionHash ${String(txHash)}`,
         );
       }
+    }
+
+    // Before anything parses them: BigInt also takes decimal, empty or numeric
+    // values the format does not allow, and throws a bare SyntaxError on the rest.
+    const malformed = malformedQuantity(record);
+    if (malformed !== null) {
+      throw new CanonicalFormError(meta, `record ${malformed}`);
     }
 
     const block = BigInt(record.blockNumber);
