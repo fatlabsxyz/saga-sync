@@ -226,6 +226,7 @@ The client library is a thin layer responsible for downloading, validating, and 
    - Compare against the manifest's `digest` field. Reject on mismatch.
    - Verify event ordering within the chunk: strictly ascending by `(blockNumber, logIndex)`.
    - Verify every event's `blockNumber` falls within the chunk's `[fromBlock, toBlock)` range from the manifest.
+   - Verify every ordering quantity (`blockNumber`, `logIndex`; `transactionIndex`, `opIndex` for entity records) is minimal lowercase hex per §3.3, and that the in-block ones are at most 2^53 − 1, so a JavaScript consumer can hold them as numbers.
 6. **Hand validated event data to the application** for protocol-specific state reconstruction.
 
 ### 5.2 What the Client Does NOT Do

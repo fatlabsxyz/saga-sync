@@ -198,4 +198,68 @@ describe("verifyChunkEvents", () => {
       verifyChunkEvents(rangeMeta(0x10, 0x20), [ev(0x12, 3), ev(0x12, 3)]),
     ).toThrow(CanonicalFormError);
   });
+
+  describe("quantities", () => {
+    const meta = rangeMeta(0x0, 0x20);
+    const withField = (field: string, value: unknown) => ({ ...ev(0x10), [field]: value }) as never;
+
+    // BigInt accepts every one of these, so before the format check they passed
+    // the range and ordering checks and reached the consumer.
+    it.each([
+      ["a decimal string", "16"],
+      ["an empty string", ""],
+      ["a JSON number", 16],
+      ["a leading zero", "0x010"],
+      ["upper-case hex", "0x1A"],
+    ])("throws on a blockNumber given as %s", (_, value) => {
+      expect(() => verifyChunkEvents(meta, [withField("blockNumber", value)])).toThrow(
+        /blockNumber .* is not a minimal lower-case 0x-hex quantity/,
+      );
+    });
+
+    it.each([
+      ["a decimal string", "3"],
+      ["an empty string", ""],
+      ["a JSON number", 1e300],
+      ["a leading zero", "0x00"],
+      ["non-hex text", "zz"],
+    ])("throws on a logIndex given as %s", (_, value) => {
+      expect(() => verifyChunkEvents(meta, [withField("logIndex", value)])).toThrow(
+        /logIndex .* is not a minimal lower-case 0x-hex quantity/,
+      );
+    });
+
+    it("throws CanonicalFormError, not SyntaxError, on non-hex text", () => {
+      expect(() => verifyChunkEvents(meta, [withField("blockNumber", "zz")])).toThrow(CanonicalFormError);
+    });
+
+    it("throws on a logIndex past Number.MAX_SAFE_INTEGER", () => {
+      const value = `0x${(BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString(16)}`;
+      expect(() => verifyChunkEvents(meta, [withField("logIndex", value)])).toThrow(
+        /logIndex .* is past Number.MAX_SAFE_INTEGER/,
+      );
+    });
+
+    it("passes a logIndex at Number.MAX_SAFE_INTEGER", () => {
+      const value = `0x${Number.MAX_SAFE_INTEGER.toString(16)}`;
+      expect(() => verifyChunkEvents(meta, [withField("logIndex", value)])).not.toThrow();
+    });
+
+    it("passes a blockNumber past Number.MAX_SAFE_INTEGER", () => {
+      // Block numbers stay bigints; only the in-block positions must fit a number.
+      const block = `0x${(BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString(16)}`;
+      const wide = { ...rangeMeta(0, 0), toBlock: `0x${"f".repeat(20)}` } as ChunkMeta;
+      expect(() => verifyChunkEvents(wide, [withField("blockNumber", block)])).not.toThrow();
+    });
+
+    it("throws on a malformed entity opIndex", () => {
+      const op = {
+        entity: "railgun-operation",
+        blockNumber: "0x10",
+        transactionIndex: "0x0",
+        opIndex: "1",
+      } as never;
+      expect(() => verifyChunkEvents(meta, [op])).toThrow(/opIndex "1" is not a minimal/);
+    });
+  });
 });

@@ -105,8 +105,10 @@ Everything the client serves is verified — **cache hits included**:
 - **`verifyChunkEvents(meta, events)`** then enforces the canonical form the digest
   can't catch on its own — every record within the chunk's `[from, to)` range,
   strictly ascending (logs by `(blockNumber, logIndex)`, entity records by
-  `(blockNumber, transactionIndex, opIndex)`), and no chunk mixing the two kinds;
-  violations throw `CanonicalFormError`. Given the stream's expectations (which
+  `(blockNumber, transactionIndex, opIndex)`), every one of those quantities a
+  minimal lower-case `0x`-hex string, with the in-block ones (`logIndex`,
+  `transactionIndex`, `opIndex`) within `Number.MAX_SAFE_INTEGER`, and no chunk
+  mixing the two kinds; violations throw `CanonicalFormError`. Given the stream's expectations (which
   `streamEvents` always passes), it also checks every log carries exactly the
   base six fields plus the stream's declared `extraLogFields`, in order — so a
   `/v2` stream's `transactionHash` is guaranteed present and well-formed.
